@@ -6,6 +6,7 @@
     <title>Studio 5 Prognose</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         :root { 
             --bg: #0f0f12; --card: #18181b; --border: #27272a; 
@@ -22,7 +23,7 @@
 
         #main-content { display: none; padding: 20px; width: 100%; box-sizing: border-box; }
         .header-title { font-size: 28px; font-weight: 800; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-        .toolbar { display: flex; gap: 12px; margin-bottom: 20px; align-items: center; background: var(--card); padding: 16px; border-radius: 12px; border: 1px solid var(--border); }
+        .toolbar { display: flex; gap: 12px; margin-bottom: 20px; align-items: center; background: var(--card); padding: 16px; border-radius: 12px; border: 1px solid var(--border); flex-wrap: wrap; }
         button, select { background-color: #27272a; color: white; border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
 
         .chart-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; height: 300px; }
@@ -91,7 +92,13 @@
             </select>
             <select id="groupFilter" onchange="renderUI()"><option value="Alle">Alle Team</option><option value="Sigurd">Sigurd</option><option value="Carl">Carl</option></select>
             <button onclick="openNewProjectModal()" style="background:var(--accent); border:none; font-weight:600;">+ Nytt Prosjekt</button>
-            <button onclick="exportToExcel()" style="background:#059669; border:none;">Excel Eksport</button>
+            
+            <div style="display: flex; gap: 5px; border-left: 1px solid var(--border); padding-left: 12px;">
+                <button onclick="exportToExcel()" style="background:#059669; border:none;">Excel Eksport</button>
+                <button onclick="document.getElementById('importFile').click()" style="background:#15803d; border:none;">Excel Import</button>
+                <input type="file" id="importFile" style="display:none" onchange="importFromExcel(event)" accept=".xlsx">
+            </div>
+
             <div id="saveStatus" style="margin-left: auto; color: #4ade80; font-size: 12px;"></div>
         </div>
 
@@ -190,17 +197,57 @@
         }
         function getLedigColor(v) { return v <= 0 ? "transparent" : `rgba(74, 222, 128, ${(v / 100) * 0.4})`; }
 
+        // EXCEL EKSPORT & IMPORT
+        async function exportToExcel() {
+            const { data: rows, error } = await db.from('bemanning').select('*');
+            if (error) return alert("Feil: " + error.message);
+            const ws = XLSX.utils.json_to_sheet(rows);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Bemanning");
+            XLSX.writeFile(wb, `Studio5_Backup_${new Date().toLocaleDateString()}.xlsx`);
+        }
+
+        async function importFromExcel(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const arr = new Uint8Array(e.target.result);
+                const wb = XLSX.read(arr, {type: 'array'});
+                const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                document.getElementById('saveStatus').innerText = "Importerer...";
+                for (const row of json) {
+                    await db.from('bemanning').upsert(row);
+                }
+                alert("Import fullført!");
+                location.reload();
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
         async function save(ansatt, prosjekt, uke, inVal) {
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;
-            const id = `${ansatt}_${prosjekt}_${uke}`;
-            const { error } = await db.from('bemanning').upsert({ id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure });
+            
+            // Vasker ID for spesialtegn for å unngå unknown content type feil
+            const cleanProsjekt = prosjekt.replace(/[\/\\#%&*{}$!'"<>:?@|]/g, '-');
+            const id = `${ansatt}_${cleanProsjekt}_${uke}`;
+
+            const { error } = await db.from('bemanning').upsert({ 
+                id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure 
+            }, { onConflict: 'id' }).select('id');
+
             if (!error) {
                 const ex = data.assignments.find(a => a.id === id);
-                if (ex) { ex.prosent = val; ex.er_usikker = isUnsure; } else data.assignments.push({ id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure });
+                if (ex) { ex.prosent = val; ex.er_usikker = isUnsure; } 
+                else data.assignments.push({ id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure });
+                
                 document.getElementById('saveStatus').innerText = "Lagret";
                 setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
                 renderTotaler(); updateChart(); updateStats();
+            } else {
+                console.error("Lagringsfeil:", error);
+                alert("Kunne ikke lagre: " + error.message);
             }
         }
 
@@ -308,15 +355,11 @@
             const gF = document.getElementById('groupFilter').value;
             const fEmps = data.employees.filter(e => gF === 'Alle' || e.gruppe === gF);
             const n = fEmps.length || 1;
-            
-            // Kutt tidslinjen så den starter fra forrige uke
             const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
             const startIdx = Math.max(0, currentIdx - 1); 
             const chartTimeline = data.timeline.slice(startIdx);
-
             const datasets = [];
             const labels = chartTimeline.map(t => 'U'+t.week);
-
             const totalUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id && !a.er_usikker).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
             const unsureUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
 
@@ -329,13 +372,12 @@
                 datasets.push({ label: 'Fakturerbar', data: faktUtil, borderColor: '#fff', borderDash: [5, 5], fill: false, tension: 0.3 });
                 datasets.push({ label: 'Inkl. Usikker', data: unsureUtil, borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3 });
             }
-
             const ctx = document.getElementById('utilizationChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
             chartInstance = new Chart(ctx, {
                 type: 'line',
                 data: { labels, datasets },
-                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: view === 'ledig' ? 100 : 120, title: { display: true, text: view === 'ledig' ? 'Ledig tid %' : 'Utnyttelse %', color: '#a1a1aa' } } } }
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: view === 'ledig' ? 100 : 120, ticks: { color: '#a1a1aa' } }, x: { ticks: { color: '#a1a1aa' } } } }
             });
         }
 
@@ -357,7 +399,6 @@
         async function removeProjectFromEmployee(ansatt, prosjekt) { if(confirm("Fjerne fra ansatt?")) { await db.from('bemanning').delete().eq('ansatt', ansatt).eq('prosjekt', prosjekt); await fetchData(); renderUI(); } }
         function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
         function filterProjects() { const s=document.getElementById('projectSearch').value.toLowerCase(), l=document.getElementById('projectList'); l.innerHTML=''; data.projects.filter(p => p.navn.toLowerCase().includes(s)).forEach(p => { const d=document.createElement('div'); d.style.padding="10px"; d.style.cursor="pointer"; d.innerText=p.navn; d.onclick=async()=>{ await save(activeAssignee, p.navn, currentWeekId, '0'); closeModals(); await fetchData(); renderUI(); }; l.appendChild(d); }); }
-        function exportToExcel() { alert("Excel-eksport rulles ut i neste steg."); }
 
         checkUser();
     </script>
