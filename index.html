@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Studio 5 Prognose</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { 
+            --bg: #0f0f12; --card: #18181b; --border: #27272a; 
+            --accent: #3b82f6; --text: #f4f4f5; --text-dim: #a1a1aa; --danger: #ef4444;
+            --unsure: #423b1c; 
+        }
+        
+        body { background-color: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; margin: 0; min-height: 100vh; }
+        
+        #login-screen { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: var(--bg); align-items: center; justify-content: center; z-index: 1000; }
+        .login-box { background: var(--card); padding: 40px; border-radius: 12px; border: 1px solid var(--border); width: 320px; text-align: center; }
+        .login-box input { width: 100%; padding: 12px; margin-bottom: 12px; background: #27272a; border: 1px solid var(--border); color: white; border-radius: 6px; box-sizing: border-box; outline: none; }
+        .login-box button { width: 100%; padding: 12px; background: var(--accent); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
+
+        #main-content { display: none; padding: 20px; width: 100%; box-sizing: border-box; }
+        .header-title { font-size: 28px; font-weight: 800; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
+        .toolbar { display: flex; gap: 12px; margin-bottom: 20px; align-items: center; background: var(--card); padding: 16px; border-radius: 12px; border: 1px solid var(--border); }
+        button, select { background-color: #27272a; color: white; border: 1px solid var(--border); padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+
+        .chart-container { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 20px; height: 300px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px; }
+        .stat-card { background: var(--card); border: 1px solid var(--border); padding: 20px; border-radius: 12px; text-align: center; }
+
+        .scroll-container { width: 100%; overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); background: var(--card); position: relative; scroll-behavior: smooth; }
+        table { border-collapse: collapse; min-width: 4500px; table-layout: fixed; }
+        th, td { border: 1px solid var(--border); text-align: center; width: 65px; height: 45px; position: relative; }
+        
+        .name-col { position: sticky; left: 0; background: #18181b; z-index: 20; width: 280px !important; text-align: left !important; padding: 0 15px; border-right: 2px solid var(--border); box-sizing: border-box; }
+        .name-content { display: flex; align-items: center; gap: 8px; width: 100%; }
+        
+        .edit-btn { background: transparent; border: none; color: var(--text-dim); font-size: 11px; padding: 5px; cursor: pointer; margin-left: auto; opacity: 0.3; }
+        .edit-btn:hover { opacity: 1; color: var(--accent); }
+        
+        .current-week { border-left: 2px solid var(--accent) !important; border-right: 2px solid var(--accent) !important; background: rgba(59, 130, 246, 0.05); }
+        .header-year { background: #09090b; font-size: 14px; font-weight: 900; height: 35px; }
+        .header-month { background: #111113; font-size: 12px; font-weight: bold; height: 30px; color: #3b82f6; text-transform: uppercase; }
+        .header-week { background: #18181b; font-size: 10px; color: var(--text-dim); height: 30px; }
+        
+        .row-summary { cursor: pointer; background: #1c1c21; font-weight: 600; }
+        .row-project { background: #121215; font-size: 12px; }
+        .row-total { background: #09090b; font-weight: 800; border-top: 2px solid var(--accent); }
+
+        input.cell-input { width: 100%; height: 100%; background: transparent; border: none; color: inherit; text-align: center; font-weight: bold; outline: none; }
+        .cell-locked { color: var(--text-dim); font-style: italic; font-size: 11px; cursor: not-allowed; }
+        .cell-unsure { background-color: var(--unsure) !important; }
+
+        .remove-proj-btn { opacity: 0; color: var(--danger); background: transparent; border: none; cursor: pointer; font-size: 18px; margin-left: auto; }
+        .row-project:hover .remove-proj-btn { opacity: 1; }
+        .nc-tag { color: #3b82f6; font-weight: bold; }
+        .uf-tag { color: var(--text-dim); opacity: 0.6; }
+
+        .modal-overlay { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); align-items: center; justify-content: center; }
+        .modal-content { background: var(--card); padding: 25px; border-radius: 12px; width: 400px; border: 1px solid var(--border); }
+        .modal-content input, .modal-content select { width: 100%; padding: 12px; margin-bottom: 10px; background: #27272a; border: 1px solid var(--border); color: white; border-radius: 6px; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+
+    <div id="login-screen">
+        <div class="login-box">
+            <h2 style="margin-bottom: 20px;">Studio 5</h2>
+            <input type="email" id="email" placeholder="E-post">
+            <input type="password" id="password" placeholder="Passord">
+            <button onclick="handleLogin()">Logg inn</button>
+            <p id="login-error" style="color:var(--danger); font-size:12px; margin-top:15px;"></p>
+        </div>
+    </div>
+
+    <div id="main-content">
+        <div class="header-title">
+            <span>Studio 5 Prognose <span id="samletProsent" style="font-size: 14px; color: var(--text-dim); font-weight: normal; margin-left: 20px;"></span></span>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="changePassword()" style="background:#3f3f46; border:none; font-size:12px; padding:8px 15px;">Bytt passord</button>
+                <button onclick="handleLogout()" style="background:var(--danger); border:none; font-size:12px; padding:8px 15px;">Logg ut</button>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <select id="viewFilter" onchange="renderUI()">
+                <option value="ansatte">Vis: Ansatte</option>
+                <option value="ledig">Vis: Ledig kapasitet</option>
+                <option value="prosjekter">Vis: Prosjekter</option>
+            </select>
+            <select id="groupFilter" onchange="renderUI()"><option value="Alle">Alle Team</option><option value="Sigurd">Sigurd</option><option value="Carl">Carl</option></select>
+            <button onclick="openNewProjectModal()" style="background:var(--accent); border:none; font-weight:600;">+ Nytt Prosjekt</button>
+            <button onclick="exportToExcel()" style="background:#059669; border:none;">Excel Eksport</button>
+            <div id="saveStatus" style="margin-left: auto; color: #4ade80; font-size: 12px;"></div>
+        </div>
+
+        <div id="chartSection" class="chart-container"><canvas id="utilizationChart"></canvas></div>
+
+        <div id="statsSection" class="stats-grid" style="display:none;">
+            <div class="stat-card"><div id="statNordicCount" style="font-size:22px; font-weight:800;">0</div><div style="font-size:11px; color:var(--text-dim);">NORDIC PROSJEKTER</div></div>
+            <div class="stat-card"><div id="statNC" style="font-size:22px; font-weight:800;">0</div><div style="font-size:11px; color:var(--text-dim);">NC PROSJEKTER</div></div>
+            <div class="stat-card"><div id="statPercNC" style="font-size:22px; font-weight:800;">0%</div><div style="font-size:11px; color:var(--text-dim);">% NC</div></div>
+        </div>
+
+        <div class="scroll-container" id="mainTableContainer">
+            <table><thead id="tableHead"></thead><tbody id="tableBody"></tbody><tfoot id="tableFoot"></tfoot></table>
+        </div>
+    </div>
+
+    <div id="projectModal" class="modal-overlay"><div class="modal-content"><h3 id="modalTitle">Prosjekt</h3><input type="hidden" id="editProjId"><input type="text" id="projNo" placeholder="Prosjektnummer"><input type="text" id="projName" placeholder="Navn..."><div style="display:flex; gap:15px; margin-bottom:15px; font-size:13px;"><label><input type="radio" name="projType" value="nordic" checked> Nordic</label><label><input type="radio" name="projType" value="nc"> NC</label><label><input type="radio" name="projType" value="uf"> Ufakt.</label></div><button onclick="saveProject()" style="width:100%; background:var(--accent); border:none; padding:12px; border-radius:6px; font-weight:600;">Lagre</button><button id="deleteBtn" style="width:100%; margin-top:5px; background:var(--danger); border:none; padding:12px; border-radius:6px;" onclick="deleteProject()">Slett</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
+    <div id="assignModal" class="modal-overlay"><div class="modal-content"><h3>Tildel prosjekt</h3><input type="text" id="projectSearch" placeholder="Søk etter prosjekt..." oninput="filterProjects()"><div id="projectList" style="max-height:300px; overflow-y:auto; margin-top:10px;"></div><button onclick="closeModals()" style="width:100%; margin-top:10px;">Avbryt</button></div></div>
+    <div id="employeeModal" class="modal-overlay"><div class="modal-content"><h3>Rediger Ansatt</h3><input type="hidden" id="editEmpId"><input type="text" id="editEmpName" disabled style="opacity:0.5;"><select id="editEmpGroup"><option value="Alle">Ingen gruppe</option><option value="Sigurd">Sigurd</option><option value="Carl">Carl</option></select><button onclick="saveEmployee()" style="width:100%; background:var(--accent); border:none; padding:12px;">Lagre</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
+
+    <script>
+        const supabaseUrl = 'https://gtebkasmqdvqhwesqkcq.supabase.co';
+        const supabaseKey = 'sb_publishable_fh-IwZS8DpRwwU_ETq7yZg_QvezjZe5'; 
+        const db = supabase.createClient(supabaseUrl, supabaseKey);
+
+        let data = { employees: [], projects: [], assignments: [], timeline: [] };
+        let expanded = new Set();
+        let chartInstance = null;
+        let activeAssignee = null;
+        let currentWeekId = "";
+
+        // AUTH
+        async function checkUser() {
+            const { data: { session } } = await db.auth.getSession();
+            if (session) { document.getElementById('login-screen').style.display = 'none'; document.getElementById('main-content').style.display = 'block'; init(); }
+            else { document.getElementById('login-screen').style.display = 'flex'; }
+        }
+        async function handleLogin() {
+            const email = document.getElementById('email').value.trim().toLowerCase();
+            const password = document.getElementById('password').value;
+            const { error } = await db.auth.signInWithPassword({ email, password });
+            if (error) document.getElementById('login-error').innerText = "Feil e-post eller passord."; else location.reload();
+        }
+        async function handleLogout() { await db.auth.signOut(); location.reload(); }
+        async function changePassword() {
+            const ny = prompt("Nytt passord (minst 6 tegn):");
+            if (ny && ny.length >= 6) { const { error } = await db.auth.updateUser({ password: ny }); alert(error ? error.message : "Oppdatert!"); }
+        }
+
+        function buildTimeline() {
+            const now = new Date();
+            const start = new Date();
+            start.setDate(start.getDate() - (start.getDay() || 7) - (12 * 7) + 1); 
+            const currentUke = getWeekNumber(now);
+            const currentYear = now.getFullYear().toString().slice(-2);
+            currentWeekId = `u${currentUke}/${currentYear}`;
+            for(let i = 0; i < 64; i++) {
+                const d = new Date(start); d.setDate(d.getDate() + (i * 7));
+                const w = getWeekNumber(d);
+                const id = `u${w}/${d.getFullYear().toString().slice(-2)}`;
+                data.timeline.push({ id, week: w, month: d.toLocaleString('no-NO', {month:'short'}), year: d.getFullYear(), isPast: d < now && id !== currentWeekId });
+            }
+        }
+
+        function getWeekNumber(d) {
+            d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+            return Math.ceil((((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 1))) / 86400000) + 1) / 7);
+        }
+
+        async function init() { 
+            buildTimeline(); 
+            await fetchData(); 
+            renderUI(); 
+            setTimeout(() => {
+                const el = document.querySelector(`[data-week-id="${currentWeekId}"]`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+            }, 500);
+        }
+
+        async function fetchData() { 
+            const [emp, proj, ass] = await Promise.all([
+                db.from('ansatte').select('*').order('navn'), 
+                db.from('prosjekter').select('*').order('navn'), 
+                db.from('bemanning').select('*')
+            ]);
+            data.employees = emp.data || []; 
+            data.projects = proj.data || []; 
+            data.assignments = ass.data || [];
+        }
+
+        function getCellColor(v) {
+            if (!v || v === 0) return "transparent";
+            if (v > 100) return "rgba(239, 68, 68, 0.3)";
+            return `rgba(34, 197, 94, ${(v / 100) * 0.2})`;
+        }
+        function getLedigColor(v) { return v <= 0 ? "transparent" : `rgba(74, 222, 128, ${(v / 100) * 0.4})`; }
+
+        async function save(ansatt, prosjekt, uke, inVal) {
+            const isUnsure = inVal.toLowerCase().endsWith('u');
+            const val = parseFloat(inVal.replace('u', '')) || 0;
+            const id = `${ansatt}_${prosjekt}_${uke}`;
+            const { error } = await db.from('bemanning').upsert({ id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure });
+            if (!error) {
+                const ex = data.assignments.find(a => a.id === id);
+                if (ex) { ex.prosent = val; ex.er_usikker = isUnsure; } else data.assignments.push({ id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure });
+                document.getElementById('saveStatus').innerText = "Lagret";
+                setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
+                renderTotaler(); updateChart(); updateStats();
+            }
+        }
+
+        async function fillMonth(ansatt, prosjekt, ukeId, value) {
+            const currentIdx = data.timeline.findIndex(t => t.id === ukeId);
+            const currentMonth = data.timeline[currentIdx].month;
+            for (let i = currentIdx; i < data.timeline.length; i++) {
+                if (data.timeline[i].month !== currentMonth) break;
+                if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) {
+                    await save(ansatt, prosjekt, data.timeline[i].id, value);
+                }
+            }
+            renderUI();
+        }
+
+        function renderUI() {
+            const view = document.getElementById('viewFilter').value;
+            const gF = document.getElementById('groupFilter').value;
+            document.getElementById('chartSection').style.display = (view === 'ansatte' || view === 'ledig') ? 'block' : 'none';
+            document.getElementById('statsSection').style.display = view === 'prosjekter' ? 'grid' : 'none';
+            document.getElementById('groupFilter').style.display = view === 'prosjekter' ? 'none' : 'inline-block';
+
+            const head = document.getElementById('tableHead');
+            let yrs = '<th class="name-col header-year"></th>', mos = '<th class="name-col header-month">Navn</th>', wks = '<th class="name-col header-week"></th>';
+            let curY = data.timeline[0].year, yC = 0, curM = data.timeline[0].month, mC = 0;
+            data.timeline.forEach((t, i) => {
+                const isCur = t.id === currentWeekId;
+                wks += `<th class="header-week ${isCur?'current-week':''}" data-week-id="${t.id}">U${t.week}</th>`;
+                if (t.year === curY) yC++; else { yrs += `<th colspan="${yC}" class="header-year">${curY}</th>`; curY = t.year; yC = 1; }
+                if (t.month === curM) mC++; else { mos += `<th colspan="${mC}" class="header-month">${curM}</th>`; curM = t.month; mC = 1; }
+                if (i === data.timeline.length - 1) { yrs += `<th colspan="${yC}" class="header-year">${curY}</th>`; mos += `<th colspan="${mC}" class="header-month">${curM}</th>`; }
+            });
+            head.innerHTML = `<tr>${yrs}</tr><tr>${mos}</tr><tr>${wks}</tr>`;
+
+            const body = document.getElementById('tableBody'); body.innerHTML = '';
+            if (view === 'ansatte' || view === 'ledig') {
+                data.employees.filter(e => gF === 'Alle' || e.gruppe === gF).forEach(emp => {
+                    const tr = document.createElement('tr'); tr.className='row-summary';
+                    tr.onclick = (e) => { if(!e.target.closest('button')) { expanded.has(emp.navn) ? expanded.delete(emp.navn) : expanded.add(emp.navn); renderUI(); } };
+                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${emp.navn} <button class="edit-btn" onclick="openEditEmployeeModal('${emp.id}','${emp.navn}','${emp.gruppe}')">✎</button></div></td>`;
+                    data.timeline.forEach(t => {
+                        const sum = data.assignments.filter(a => a.ansatt === emp.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0);
+                        if (view === 'ledig') { const l = 100 - sum; h += `<td style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':'#fff'}">${l}%</td>`; }
+                        else { h += `<td style="background-color:${getCellColor(sum)}; color:${sum>100?'#f87171':'#fff'}">${sum>0?sum+'%':'-'}</td>`; }
+                    });
+                    tr.innerHTML = h; body.appendChild(tr);
+                    if (expanded.has(emp.navn)) {
+                        [...new Set(data.assignments.filter(a => a.ansatt === emp.navn).map(a => a.prosjekt))].forEach(pn => {
+                            const pDb = data.projects.find(p => p.navn === pn);
+                            const ptr = document.createElement('tr'); ptr.className='row-project';
+                            let ph = `<td class="name-col" style="padding-left:30px;"><div class="name-content"><span class="${pDb?.er_nc?'nc-tag':(pDb?.er_ufakturerbart?'uf-tag':'')}">${pDb?.prosjektnummer ? pDb.prosjektnummer + ' - ' : ''}${pn}</span><button class="remove-proj-btn" onclick="removeProjectFromEmployee('${emp.navn}', '${pn}')">×</button></div></td>`;
+                            data.timeline.forEach(t => {
+                                const a = data.assignments.find(x => x.ansatt === emp.navn && x.prosjekt === pn && x.uke === t.id);
+                                const v = a ? a.prosent : ''; const isU = a ? a.er_usikker : false; const isLocked = t.isPast && t.id !== currentWeekId;
+                                if (isLocked) ph += `<td class="cell-locked">${v}${isU?'u':''}</td>`;
+                                else ph += `<td class="${isU?'cell-unsure':''}" title="Dobbelklikk for å fylle måneden"><input class="cell-input" value="${v}${isU?'u':''}" onchange="save('${emp.navn}','${pn}','${t.id}',this.value)" ondblclick="fillMonth('${emp.navn}','${pn}','${t.id}',this.value)"></td>`;
+                            });
+                            ptr.innerHTML = ph; body.appendChild(ptr);
+                        });
+                        body.insertAdjacentHTML('beforeend', `<tr><td class="name-col" style="background:#111;"><button onclick="openAssignModal('${emp.navn}')" style="font-size:10px; margin-left:20px">+ Tildel</button></td><td colspan="${data.timeline.length}"></td></tr>`);
+                    }
+                });
+            } else {
+                data.projects.forEach(p => {
+                    const tr = document.createElement('tr'); tr.className='row-summary';
+                    tr.onclick = () => { expanded.has(p.navn) ? expanded.delete(p.navn) : expanded.add(p.navn); renderUI(); };
+                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(p.navn)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer || ''} ${p.navn}</span><button class="edit-btn" onclick="openEditProjectModal('${p.id}','${p.prosjektnummer}','${p.navn}',${p.er_nc},${p.er_ufakturerbart})">✎</button></div></td>`;
+                    data.timeline.forEach(t => { const s = data.assignments.filter(a => a.prosjekt === p.navn && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); h += `<td style="background-color:${getCellColor(s)}">${s>0?s+'%':'-'}</td>`; });
+                    tr.innerHTML = h; body.appendChild(tr);
+                    if (expanded.has(p.navn)) {
+                        [...new Set(data.assignments.filter(a => a.prosjekt === p.navn).map(a => a.ansatt))].forEach(an => {
+                            const ptr = document.createElement('tr'); ptr.className='row-project';
+                            let ph = `<td class="name-col" style="padding-left:30px;">${an}</td>`;
+                            data.timeline.forEach(t => {
+                                const a = data.assignments.find(x => x.ansatt === an && x.prosjekt === p.navn && x.uke === t.id);
+                                const v = a ? a.prosent : ''; const isU = a ? a.er_usikker : false;
+                                ph += `<td class="${isU?'cell-unsure':''}">${v}${isU?'u':''}</td>`;
+                            });
+                            ptr.innerHTML = ph; body.appendChild(ptr);
+                        });
+                    }
+                });
+            }
+            renderTotaler(); updateChart(); updateStats();
+        }
+
+        function renderTotaler() {
+            const gF = document.getElementById('groupFilter').value;
+            const view = document.getElementById('viewFilter').value;
+            const foot = document.getElementById('tableFoot');
+            if (view === 'prosjekter') { foot.innerHTML = ''; return; }
+            const fEmps = data.employees.filter(e => gF === 'Alle' || e.gruppe === gF);
+            let h = `<tr class="row-total"><td class="name-col">${view === 'ledig' ? 'SNITT LEDIG' : 'TOTAL UTNYTTELSE'}</td>`;
+            data.timeline.forEach(t => {
+                let total = 0; fEmps.forEach(e => { total += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0); });
+                const avg = Math.round(total / (fEmps.length || 1));
+                if (view === 'ledig') { const l = 100 - avg; h += `<td style="background-color:${getLedigColor(l)}">${l}%</td>`; }
+                else h += `<td style="background-color:${getCellColor(avg)}">${avg}%</td>`;
+            });
+            foot.innerHTML = h + '</tr>';
+        }
+
+        function updateChart() {
+            const view = document.getElementById('viewFilter').value;
+            const gF = document.getElementById('groupFilter').value;
+            const fEmps = data.employees.filter(e => gF === 'Alle' || e.gruppe === gF);
+            const n = fEmps.length || 1;
+            
+            // Kutt tidslinjen så den starter fra forrige uke
+            const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
+            const startIdx = Math.max(0, currentIdx - 1); 
+            const chartTimeline = data.timeline.slice(startIdx);
+
+            const datasets = [];
+            const labels = chartTimeline.map(t => 'U'+t.week);
+
+            const totalUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id && !a.er_usikker).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
+            const unsureUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
+
+            if (view === 'ledig') {
+                datasets.push({ label: 'Garantert ledig', data: totalUtil.map(v => 100 - v), borderColor: '#3b82f6', fill: false, tension: 0.3 });
+                datasets.push({ label: 'Ledig (inkl. usikre)', data: unsureUtil.map(v => 100 - v), borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3 });
+            } else {
+                const faktUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => { const p = data.projects.find(x => x.navn === a.prosjekt); return a.ansatt === e.navn && a.uke === t.id && p && !p.er_ufakturerbart && !a.er_usikker; }).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
+                datasets.push({ label: 'Sikker Total', data: totalUtil, borderColor: '#3b82f6', fill: false, tension: 0.3 });
+                datasets.push({ label: 'Fakturerbar', data: faktUtil, borderColor: '#fff', borderDash: [5, 5], fill: false, tension: 0.3 });
+                datasets.push({ label: 'Inkl. Usikker', data: unsureUtil, borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3 });
+            }
+
+            const ctx = document.getElementById('utilizationChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { labels, datasets },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: view === 'ledig' ? 100 : 120, title: { display: true, text: view === 'ledig' ? 'Ledig tid %' : 'Utnyttelse %', color: '#a1a1aa' } } } }
+            });
+        }
+
+        function updateStats() {
+            const fakt = data.projects.filter(p => !p.er_ufakturerbart);
+            const nc = fakt.filter(p => p.er_nc);
+            document.getElementById('statNordicCount').innerText = fakt.length - nc.length;
+            document.getElementById('statNC').innerText = nc.length;
+            document.getElementById('statPercNC').innerText = fakt.length > 0 ? Math.round((nc.length / fakt.length) * 100) + '%' : '0%';
+        }
+
+        function openAssignModal(ansatt) { activeAssignee = ansatt; document.getElementById('projectSearch').value = ""; document.getElementById('assignModal').style.display = 'flex'; filterProjects(); }
+        function openNewProjectModal() { document.getElementById('modalTitle').innerText="Nytt Prosjekt"; document.getElementById('editProjId').value=""; document.getElementById('projNo').value=""; document.getElementById('projName').value=""; document.getElementById('deleteBtn').style.display="none"; document.getElementById('projectModal').style.display="flex"; }
+        function openEditProjectModal(id, nr, navn, isNC, isUF) { document.getElementById('modalTitle').innerText="Rediger Prosjekt"; document.getElementById('editProjId').value=id; document.getElementById('projNo').value=nr; document.getElementById('projName').value=navn; document.querySelector(`input[name="projType"][value="${isNC?'nc':(isUF?'uf':'nordic')}"]`).checked=true; document.getElementById('deleteBtn').style.display="block"; document.getElementById('projectModal').style.display="flex"; }
+        function openEditEmployeeModal(id, navn, gruppe) { document.getElementById('editEmpId').value=id; document.getElementById('editEmpName').value=navn; document.getElementById('editEmpGroup').value=gruppe||'Alle'; document.getElementById('employeeModal').style.display='flex'; }
+        async function saveProject() { const id=document.getElementById('editProjId').value; const nr=document.getElementById('projNo').value, navn=document.getElementById('projName').value, type=document.querySelector('input[name="projType"]:checked').value; if(!navn) return; if(id) await db.from('prosjekter').update({prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf'}).eq('id', id); else await db.from('prosjekter').insert([{prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf'}]); await fetchData(); renderUI(); closeModals(); }
+        async function deleteProject() { if(confirm("Slette prosjektet?")) { await db.from('prosjekter').delete().eq('id', document.getElementById('editProjId').value); await fetchData(); renderUI(); closeModals(); } }
+        async function saveEmployee() { await db.from('ansatte').update({gruppe:document.getElementById('editEmpGroup').value}).eq('id', document.getElementById('editEmpId').value); await fetchData(); renderUI(); closeModals(); }
+        async function removeProjectFromEmployee(ansatt, prosjekt) { if(confirm("Fjerne fra ansatt?")) { await db.from('bemanning').delete().eq('ansatt', ansatt).eq('prosjekt', prosjekt); await fetchData(); renderUI(); } }
+        function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
+        function filterProjects() { const s=document.getElementById('projectSearch').value.toLowerCase(), l=document.getElementById('projectList'); l.innerHTML=''; data.projects.filter(p => p.navn.toLowerCase().includes(s)).forEach(p => { const d=document.createElement('div'); d.style.padding="10px"; d.style.cursor="pointer"; d.innerText=p.navn; d.onclick=async()=>{ await save(activeAssignee, p.navn, currentWeekId, '0'); closeModals(); await fetchData(); renderUI(); }; l.appendChild(d); }); }
+        function exportToExcel() { alert("Excel-eksport rulles ut i neste steg."); }
+
+        checkUser();
+    </script>
+</body>
+</html>
