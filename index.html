@@ -229,12 +229,23 @@
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;
             
-            // Vasker ID for spesialtegn for å unngå unknown content type feil
-            const cleanProsjekt = prosjekt.replace(/[\/\\#%&*{}$!'"<>:?@|]/g, '-');
-            const id = `${ansatt}_${cleanProsjekt}_${uke}`;
+            // ROBUST ID-VASK FOR Å HÅNDTERE "HODDØ" OG SPESIALTEGN
+            const clean = (str) => {
+                return String(str)
+                    .replace(/æ/g, 'ae').replace(/Æ/g, 'ae')
+                    .replace(/ø/g, 'o').replace(/Ø/g, 'o')
+                    .replace(/å/g, 'aa').replace(/Å/g, 'aa')
+                    .replace(/[^a-zA-Z0-9]/g, '_'); 
+            };
+            const id = `${clean(ansatt)}_${clean(prosjekt)}_${uke}`;
 
             const { error } = await db.from('bemanning').upsert({ 
-                id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure 
+                id: id, 
+                ansatt: ansatt,     
+                prosjekt: prosjekt, 
+                uke: uke, 
+                prosent: val, 
+                er_usikker: isUnsure 
             }, { onConflict: 'id' }).select('id');
 
             if (!error) {
@@ -247,7 +258,7 @@
                 renderTotaler(); updateChart(); updateStats();
             } else {
                 console.error("Lagringsfeil:", error);
-                alert("Kunne ikke lagre: " + error.message);
+                alert("Feil ved lagring. Prøv å laste siden på nytt (F5).");
             }
         }
 
@@ -307,6 +318,7 @@
                             });
                             ptr.innerHTML = ph; body.appendChild(ptr);
                         });
+                        // HER ER DEN ENDREDE TEKSTEN PÅ KNAPPEN:
                         body.insertAdjacentHTML('beforeend', `<tr><td class="name-col" style="background:#111;"><button onclick="openAssignModal('${emp.navn}')" style="font-size:10px; margin-left:20px">+ Legg til prosjekt</button></td><td colspan="${data.timeline.length}"></td></tr>`);
                     }
                 });
