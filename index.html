@@ -215,6 +215,7 @@
         async function init() { 
             buildTimeline(); 
             await fetchData(); 
+            initListeners();
             renderUI(); 
             setTimeout(scrollToCurrentWeek, 500);
         }
@@ -407,16 +408,18 @@
 
         // =============================================================
         // FIX 4 (fortsettelse): Delegert event-håndtering
-        // I stedet for onclick i hvert element, lytter vi på tbody
-        // og sjekker data-action-attributtet.
+        // Lytter settes på mainTableContainer én gang ved oppstart.
+        // Siden lytteren aldri fjernes, fungerer den selv etter at
+        // tbody blir overskrevet med ny innerHTML.
         // =============================================================
         function attachTableListeners() {
-            const body = document.getElementById('tableBody');
-            // Fjern gammel lytter og sett ny
-            body.replaceWith(body.cloneNode(true));
-            const newBody = document.getElementById('tableBody');
+            // Gjør ingenting – lytterne er satt opp én gang i initListeners()
+        }
 
-            newBody.addEventListener('click', async (e) => {
+        function initListeners() {
+            const container = document.getElementById('mainTableContainer');
+
+            container.addEventListener('click', async (e) => {
                 const btn = e.target.closest('button[data-action]');
                 if (!btn) return;
                 e.stopPropagation();
@@ -433,13 +436,13 @@
                 }
             });
 
-            newBody.addEventListener('change', async (e) => {
+            container.addEventListener('change', async (e) => {
                 const inp = e.target.closest('input[data-action="cell-input"]');
                 if (!inp) return;
                 await save(inp.dataset.ansatt, inp.dataset.prosjekt, inp.dataset.uke, inp.value);
             });
 
-            newBody.addEventListener('dblclick', async (e) => {
+            container.addEventListener('dblclick', async (e) => {
                 const inp = e.target.closest('input[data-action="cell-input"]');
                 if (!inp) return;
                 await fillMonth(inp.dataset.ansatt, inp.dataset.prosjekt, inp.dataset.uke, inp.value);
