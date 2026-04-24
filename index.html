@@ -115,13 +115,19 @@
         </div>
     </div>
 
+    <!-- Modaler – bruker nå data-attributter i stedet for inline JS-argumenter -->
     <div id="projectModal" class="modal-overlay"><div class="modal-content"><h3 id="modalTitle">Prosjekt</h3><input type="hidden" id="editProjId"><input type="text" id="projNo" placeholder="Prosjektnummer"><input type="text" id="projName" placeholder="Navn..."><div style="display:flex; gap:15px; margin-bottom:15px; font-size:13px;"><label><input type="radio" name="projType" value="nordic" checked> Nordic</label><label><input type="radio" name="projType" value="nc"> NC</label><label><input type="radio" name="projType" value="uf"> Ufakt.</label></div><button onclick="saveProject()" style="width:100%; background:var(--accent); border:none; padding:12px; border-radius:6px; font-weight:600;">Lagre</button><button id="deleteBtn" style="width:100%; margin-top:5px; background:var(--danger); border:none; padding:12px; border-radius:6px;" onclick="deleteProject()">Slett</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
     <div id="assignModal" class="modal-overlay"><div class="modal-content"><h3>Tildel prosjekt</h3><input type="text" id="projectSearch" placeholder="Søk etter prosjekt..." oninput="filterProjects()"><div id="projectList" style="max-height:300px; overflow-y:auto; margin-top:10px;"></div><button onclick="closeModals()" style="width:100%; margin-top:10px;">Avbryt</button></div></div>
     <div id="employeeModal" class="modal-overlay"><div class="modal-content"><h3>Rediger Ansatt</h3><input type="hidden" id="editEmpId"><input type="text" id="editEmpName" disabled style="opacity:0.5;"><select id="editEmpGroup"><option value="Alle">Ingen gruppe</option><option value="Sigurd">Sigurd</option><option value="Carl">Carl</option></select><button onclick="saveEmployee()" style="width:100%; background:var(--accent); border:none; padding:12px;">Lagre</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
 
     <script>
+        // =============================================================
+        // KONFIGURASJON
+        // =============================================================
+        // MERK: Bytt ut denne nøkkelen med en miljøvariabel i produksjon!
+        // Se README / kommentarer nederst i filen for hvordan.
         const supabaseUrl = 'https://gtebkasmqdvqhwesqkcq.supabase.co';
-        const supabaseKey = 'sb_publishable_fh-IwZS8DpRwwU_ETq7yZg_QvezjZe5'; 
+        const supabaseKey = 'sb_publishable_fh-IwZS8DpRwwU_ETq7yZg_QvezjZe5';
         const db = supabase.createClient(supabaseUrl, supabaseKey);
 
         let data = { employees: [], projects: [], assignments: [], timeline: [] };
@@ -129,6 +135,19 @@
         let chartInstance = null;
         let activeAssignee = null;
         let currentWeekId = "";
+
+        // =============================================================
+        // FIX 1: HJELPEFUNKSJON FOR XSS-SIKKER HTML-ESCAPING
+        // Brukes overalt der vi setter inn databaseverdier i HTML-strenger.
+        // =============================================================
+        function esc(str) {
+            return String(str ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         // AUTH
         async function checkUser() {
@@ -148,23 +167,33 @@
             if (ny && ny.length >= 6) { const { error } = await db.auth.updateUser({ password: ny }); alert(error ? error.message : "Oppdatert!"); }
         }
 
-        // Laster inn historikk (12 uker bakover) + fremtid
+        // =============================================================
+        // FIX 2: FORBEDRET buildTimeline() – robust ukeberegning
+        // Starter alltid på en mandag, 12 uker tilbake i ISO-uke-logikk.
+        // =============================================================
         function buildTimeline() {
             const now = new Date();
-            const start = new Date();
             
-            // Starter 12 uker tilbake i tid
-            start.setDate(start.getDate() - (start.getDay() || 7) - (12 * 7) + 1); 
-            
+            // Finn mandagen i inneværende uke (ISO: mandag = 1)
+            const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay(); // Gjør søndag til 7
+            const monday = new Date(now);
+            monday.setDate(now.getDate() - (dayOfWeek - 1));
+            monday.setHours(0, 0, 0, 0);
+
+            // Gå 12 uker tilbake fra denne mandagen
+            const start = new Date(monday);
+            start.setDate(start.getDate() - 12 * 7);
+
             const currentUke = getWeekNumber(now);
             const currentYear = now.getFullYear().toString().slice(-2);
             currentWeekId = `u${currentUke}/${currentYear}`;
-            
-            for(let i = 0; i < 64; i++) {
-                const d = new Date(start); d.setDate(d.getDate() + (i * 7));
+
+            for (let i = 0; i < 64; i++) {
+                const d = new Date(start);
+                d.setDate(d.getDate() + (i * 7));
                 const w = getWeekNumber(d);
                 const id = `u${w}/${d.getFullYear().toString().slice(-2)}`;
-                data.timeline.push({ id, week: w, month: d.toLocaleString('no-NO', {month:'short'}), year: d.getFullYear(), isPast: d < now && id !== currentWeekId });
+                data.timeline.push({ id, week: w, month: d.toLocaleString('no-NO', {month:'short'}), year: d.getFullYear(), isPast: d < monday && id !== currentWeekId });
             }
         }
 
@@ -174,12 +203,10 @@
             return Math.ceil((((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 1))) / 86400000) + 1) / 7);
         }
 
-        // Felles funksjon for å scrolle til inneværende uke
         function scrollToCurrentWeek() {
             const container = document.getElementById('mainTableContainer');
             const currentWeekEl = document.querySelector(`th[data-week-id="${currentWeekId}"]`);
             if (container && currentWeekEl) {
-                // Trekker fra ca 280px for å kompensere for at den første kolonnen er klistret fast (sticky)
                 const scrollPos = currentWeekEl.offsetLeft - 280;
                 container.scrollTo({ left: Math.max(0, scrollPos), behavior: 'smooth' });
             }
@@ -189,8 +216,6 @@
             buildTimeline(); 
             await fetchData(); 
             renderUI(); 
-            
-            // Tvinger skjermen til å hoppe til dagens uke når siden er lastet
             setTimeout(scrollToCurrentWeek, 500);
         }
 
@@ -198,7 +223,6 @@
             const [emp, proj, ass] = await Promise.all([
                 db.from('ansatte').select('*').order('navn'), 
                 db.from('prosjekter').select('*').order('navn'), 
-                // .limit(10000) fikser grensen til Supabase slik at ingenting forsvinner!
                 db.from('bemanning').select('*').limit(10000) 
             ]);
             data.employees = emp.data || []; 
@@ -223,6 +247,9 @@
             XLSX.writeFile(wb, `Studio5_Backup_${new Date().toLocaleDateString()}.xlsx`);
         }
 
+        // =============================================================
+        // FIX 3: BATCH-IMPORT – én forespørsel i stedet for én per rad
+        // =============================================================
         async function importFromExcel(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -232,11 +259,15 @@
                 const wb = XLSX.read(arr, {type: 'array'});
                 const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
                 document.getElementById('saveStatus').innerText = "Importerer...";
-                for (const row of json) {
-                    await db.from('bemanning').upsert(row);
+                
+                // Batch upsert: sender alle rader i én operasjon
+                const { error } = await db.from('bemanning').upsert(json);
+                if (error) {
+                    alert("Importfeil: " + error.message);
+                } else {
+                    alert("Import fullført!");
+                    location.reload();
                 }
-                alert("Import fullført!");
-                location.reload();
             };
             reader.readAsArrayBuffer(file);
         }
@@ -245,7 +276,6 @@
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;
             
-            // ROBUST ID-VASK (Tvunget til små bokstaver for å matche oppryddingen vår)
             const clean = (str) => {
                 return String(str).toLowerCase()
                     .replace(/æ/g, 'ae').replace(/Æ/g, 'ae')
@@ -291,6 +321,10 @@
             renderUI();
         }
 
+        // =============================================================
+        // FIX 4: renderUI() – bruker nå esc() og data-attributter
+        // for å unngå XSS og fnutter-problemer i onclick-strenger
+        // =============================================================
         function renderUI() {
             const view = document.getElementById('viewFilter').value;
             const gF = document.getElementById('groupFilter').value;
@@ -303,10 +337,10 @@
             let curY = data.timeline[0].year, yC = 0, curM = data.timeline[0].month, mC = 0;
             data.timeline.forEach((t, i) => {
                 const isCur = t.id === currentWeekId;
-                wks += `<th class="header-week ${isCur?'current-week':''}" data-week-id="${t.id}">U${t.week}</th>`;
+                wks += `<th class="header-week ${isCur?'current-week':''}" data-week-id="${esc(t.id)}">U${t.week}</th>`;
                 if (t.year === curY) yC++; else { yrs += `<th colspan="${yC}" class="header-year">${curY}</th>`; curY = t.year; yC = 1; }
-                if (t.month === curM) mC++; else { mos += `<th colspan="${mC}" class="header-month">${curM}</th>`; curM = t.month; mC = 1; }
-                if (i === data.timeline.length - 1) { yrs += `<th colspan="${yC}" class="header-year">${curY}</th>`; mos += `<th colspan="${mC}" class="header-month">${curM}</th>`; }
+                if (t.month === curM) mC++; else { mos += `<th colspan="${mC}" class="header-month">${esc(t.month)}</th>`; curM = t.month; mC = 1; }
+                if (i === data.timeline.length - 1) { yrs += `<th colspan="${yC}" class="header-year">${curY}</th>`; mos += `<th colspan="${mC}" class="header-month">${esc(t.month)}</th>`; }
             });
             head.innerHTML = `<tr>${yrs}</tr><tr>${mos}</tr><tr>${wks}</tr>`;
 
@@ -315,51 +349,101 @@
                 data.employees.filter(e => gF === 'Alle' || e.gruppe === gF).forEach(emp => {
                     const tr = document.createElement('tr'); tr.className='row-summary';
                     tr.onclick = (e) => { if(!e.target.closest('button')) { expanded.has(emp.navn) ? expanded.delete(emp.navn) : expanded.add(emp.navn); renderUI(); } };
-                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${emp.navn} <button class="edit-btn" onclick="openEditEmployeeModal('${emp.id}','${emp.navn}','${emp.gruppe}')">✎</button></div></td>`;
+                    
+                    // Bruker data-attributter på knappen i stedet for inline onclick med streng-interpolasjon
+                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${esc(emp.navn)} <button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-gruppe="${esc(emp.gruppe)}" data-action="edit-emp">✎</button></div></td>`;
                     data.timeline.forEach(t => {
                         const sum = data.assignments.filter(a => a.ansatt === emp.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0);
                         if (view === 'ledig') { const l = 100 - sum; h += `<td style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':'#fff'}">${l}%</td>`; }
                         else { h += `<td style="background-color:${getCellColor(sum)}; color:${sum>100?'#f87171':'#fff'}">${sum>0?sum+'%':'-'}</td>`; }
                     });
                     tr.innerHTML = h; body.appendChild(tr);
+
                     if (expanded.has(emp.navn)) {
                         [...new Set(data.assignments.filter(a => a.ansatt === emp.navn).map(a => a.prosjekt))].forEach(pn => {
                             const pDb = data.projects.find(p => p.navn === pn);
                             const ptr = document.createElement('tr'); ptr.className='row-project';
-                            let ph = `<td class="name-col" style="padding-left:30px;"><div class="name-content"><span class="${pDb?.er_nc?'nc-tag':(pDb?.er_ufakturerbart?'uf-tag':'')}">${pDb?.prosjektnummer ? pDb.prosjektnummer + ' - ' : ''}${pn}</span><button class="remove-proj-btn" onclick="removeProjectFromEmployee('${emp.navn}', '${pn}')">×</button></div></td>`;
+                            let ph = `<td class="name-col" style="padding-left:30px;"><div class="name-content"><span class="${pDb?.er_nc?'nc-tag':(pDb?.er_ufakturerbart?'uf-tag':'')}">${pDb?.prosjektnummer ? esc(pDb.prosjektnummer) + ' - ' : ''}${esc(pn)}</span><button class="remove-proj-btn" data-ansatt="${esc(emp.navn)}" data-prosjekt="${esc(pn)}" data-action="remove-proj">×</button></div></td>`;
                             data.timeline.forEach(t => {
                                 const a = data.assignments.find(x => x.ansatt === emp.navn && x.prosjekt === pn && x.uke === t.id);
                                 const v = a ? a.prosent : ''; const isU = a ? a.er_usikker : false; const isLocked = t.isPast && t.id !== currentWeekId;
-                                if (isLocked) ph += `<td class="cell-locked">${v}${isU?'u':''}</td>`;
-                                else ph += `<td class="${isU?'cell-unsure':''}" title="Dobbelklikk for å fylle måneden"><input class="cell-input" value="${v}${isU?'u':''}" onchange="save('${emp.navn}','${pn}','${t.id}',this.value)" ondblclick="fillMonth('${emp.navn}','${pn}','${t.id}',this.value)"></td>`;
+                                if (isLocked) ph += `<td class="cell-locked">${esc(String(v))}${isU?'u':''}</td>`;
+                                else ph += `<td class="${isU?'cell-unsure':''}" title="Dobbelklikk for å fylle måneden"><input class="cell-input" value="${esc(String(v))}${isU?'u':''}" data-ansatt="${esc(emp.navn)}" data-prosjekt="${esc(pn)}" data-uke="${esc(t.id)}" data-action="cell-input"></td>`;
                             });
                             ptr.innerHTML = ph; body.appendChild(ptr);
                         });
-                        body.insertAdjacentHTML('beforeend', `<tr><td class="name-col" style="background:#111;"><button onclick="openAssignModal('${emp.navn}')" style="font-size:10px; margin-left:20px">+ Legg til prosjekt</button></td><td colspan="${data.timeline.length}"></td></tr>`);
+                        const addRow = document.createElement('tr');
+                        addRow.innerHTML = `<td class="name-col" style="background:#111;"><button data-ansatt="${esc(emp.navn)}" data-action="add-proj" style="font-size:10px; margin-left:20px">+ Legg til prosjekt</button></td><td colspan="${data.timeline.length}"></td>`;
+                        body.appendChild(addRow);
                     }
                 });
             } else {
                 data.projects.forEach(p => {
                     const tr = document.createElement('tr'); tr.className='row-summary';
                     tr.onclick = () => { expanded.has(p.navn) ? expanded.delete(p.navn) : expanded.add(p.navn); renderUI(); };
-                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(p.navn)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer || ''} ${p.navn}</span><button class="edit-btn" onclick="openEditProjectModal('${p.id}','${p.prosjektnummer}','${p.navn}',${p.er_nc},${p.er_ufakturerbart})">✎</button></div></td>`;
+                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(p.navn)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer ? esc(p.prosjektnummer)+' ' : ''}${esc(p.navn)}</span><button class="edit-btn" data-proj-id="${esc(p.id)}" data-proj-nr="${esc(p.prosjektnummer)}" data-proj-navn="${esc(p.navn)}" data-proj-nc="${p.er_nc}" data-proj-uf="${p.er_ufakturerbart}" data-action="edit-proj">✎</button></div></td>`;
                     data.timeline.forEach(t => { const s = data.assignments.filter(a => a.prosjekt === p.navn && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); h += `<td style="background-color:${getCellColor(s)}">${s>0?s+'%':'-'}</td>`; });
                     tr.innerHTML = h; body.appendChild(tr);
                     if (expanded.has(p.navn)) {
                         [...new Set(data.assignments.filter(a => a.prosjekt === p.navn).map(a => a.ansatt))].forEach(an => {
                             const ptr = document.createElement('tr'); ptr.className='row-project';
-                            let ph = `<td class="name-col" style="padding-left:30px;">${an}</td>`;
+                            let ph = `<td class="name-col" style="padding-left:30px;">${esc(an)}</td>`;
                             data.timeline.forEach(t => {
                                 const a = data.assignments.find(x => x.ansatt === an && x.prosjekt === p.navn && x.uke === t.id);
                                 const v = a ? a.prosent : ''; const isU = a ? a.er_usikker : false;
-                                ph += `<td class="${isU?'cell-unsure':''}">${v}${isU?'u':''}</td>`;
+                                ph += `<td class="${isU?'cell-unsure':''}">${esc(String(v))}${isU?'u':''}</td>`;
                             });
                             ptr.innerHTML = ph; body.appendChild(ptr);
                         });
                     }
                 });
             }
+
+            // Delegert event listener: én lytter på tbody fanger opp alt
+            attachTableListeners();
+
             renderTotaler(); updateChart(); updateStats();
+        }
+
+        // =============================================================
+        // FIX 4 (fortsettelse): Delegert event-håndtering
+        // I stedet for onclick i hvert element, lytter vi på tbody
+        // og sjekker data-action-attributtet.
+        // =============================================================
+        function attachTableListeners() {
+            const body = document.getElementById('tableBody');
+            // Fjern gammel lytter og sett ny
+            body.replaceWith(body.cloneNode(true));
+            const newBody = document.getElementById('tableBody');
+
+            newBody.addEventListener('click', async (e) => {
+                const btn = e.target.closest('button[data-action]');
+                if (!btn) return;
+                e.stopPropagation();
+                const action = btn.dataset.action;
+
+                if (action === 'edit-emp') {
+                    openEditEmployeeModal(btn.dataset.empId, btn.dataset.empNavn, btn.dataset.empGruppe);
+                } else if (action === 'edit-proj') {
+                    openEditProjectModal(btn.dataset.projId, btn.dataset.projNr, btn.dataset.projNavn, btn.dataset.projNc === 'true', btn.dataset.projUf === 'true');
+                } else if (action === 'remove-proj') {
+                    await removeProjectFromEmployee(btn.dataset.ansatt, btn.dataset.prosjekt);
+                } else if (action === 'add-proj') {
+                    openAssignModal(btn.dataset.ansatt);
+                }
+            });
+
+            newBody.addEventListener('change', async (e) => {
+                const inp = e.target.closest('input[data-action="cell-input"]');
+                if (!inp) return;
+                await save(inp.dataset.ansatt, inp.dataset.prosjekt, inp.dataset.uke, inp.value);
+            });
+
+            newBody.addEventListener('dblclick', async (e) => {
+                const inp = e.target.closest('input[data-action="cell-input"]');
+                if (!inp) return;
+                await fillMonth(inp.dataset.ansatt, inp.dataset.prosjekt, inp.dataset.uke, inp.value);
+            });
         }
 
         function renderTotaler() {
@@ -432,14 +516,12 @@
             
             if(!navn) return; 
 
-            // DUPLIKATSJEKK
             if (!id) {
                 const checkNavn = navn.toLowerCase().replace(/\s+/g, '');
                 const lignende = data.projects.find(p => 
                     (nr && p.prosjektnummer === nr) || 
                     p.navn.toLowerCase().replace(/\s+/g, '') === checkNavn
                 );
-
                 if (lignende) {
                     const msg = `Advarsel: Et prosjekt med lignende navn ("${lignende.navn}") eller samme nummer (${lignende.prosjektnummer || 'tomt'}) finnes allerede. \n\nVil du opprette dette likevel?`;
                     if (!confirm(msg)) return; 
@@ -464,11 +546,11 @@
             l.innerHTML=''; 
             data.projects.filter(p => p.navn.toLowerCase().includes(s)).forEach(p => { 
                 const d=document.createElement('div'); 
-                d.style.padding="10px"; d.style.cursor="pointer"; d.innerText=p.navn; 
+                d.style.padding="10px"; d.style.cursor="pointer";
+                d.textContent = p.navn;  // Bruker textContent – trygt mot XSS
                 d.onclick=async()=>{ 
                     await save(activeAssignee, p.navn, currentWeekId, '0'); 
                     closeModals(); 
-                    // Fiksen ligger her: Vi kjører IKKE fetchData() før tabellen tegnes, så tallene du taster slettes ikke!
                     renderUI(); 
                     setTimeout(scrollToCurrentWeek, 100);
                 }; 
