@@ -194,11 +194,11 @@
             setTimeout(scrollToCurrentWeek, 500);
         }
 
-        async function fetchData() { 
+        aasync function fetchData() { 
             const [emp, proj, ass] = await Promise.all([
                 db.from('ansatte').select('*').order('navn'), 
                 db.from('prosjekter').select('*').order('navn'), 
-                db.from('bemanning').select('*').limit(10000)
+                db.from('bemanning').select('*').limit(10000) // Fikser maks-grensen til Supabase
             ]);
             data.employees = emp.data || []; 
             data.projects = proj.data || []; 
@@ -244,16 +244,16 @@
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;
             
-            // ROBUST ID-VASK
+            // ROBUST ID-VASK (Nå tvunget til små bokstaver)
             const clean = (str) => {
-                return String(str)
+                return String(str).toLowerCase()
                     .replace(/æ/g, 'ae').replace(/Æ/g, 'ae')
                     .replace(/ø/g, 'o').replace(/Ø/g, 'o')
                     .replace(/å/g, 'aa').replace(/Å/g, 'aa')
-                    .replace(/[^a-zA-Z0-9]/g, '_'); 
+                    .replace(/[^a-z0-9]/g, '_');
             };
             
-            const id = `${clean(ansatt)}_${clean(prosjekt)}_${clean(uke)}`;
+           const id = `${clean(ansatt)}_${clean(prosjekt)}_${clean(uke)}`;
 
             const { error } = await db.from('bemanning').upsert({ 
                 id: id, 
