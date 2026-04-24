@@ -198,7 +198,7 @@
             const [emp, proj, ass] = await Promise.all([
                 db.from('ansatte').select('*').order('navn'), 
                 db.from('prosjekter').select('*').order('navn'), 
-                db.from('bemanning').select('*')
+                db.from('bemanning').select('*').limit(10000)
             ]);
             data.employees = emp.data || []; 
             data.projects = proj.data || []; 
