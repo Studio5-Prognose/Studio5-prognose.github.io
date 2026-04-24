@@ -148,13 +148,18 @@
             if (ny && ny.length >= 6) { const { error } = await db.auth.updateUser({ password: ny }); alert(error ? error.message : "Oppdatert!"); }
         }
 
+        // Laster inn 12 uker historikk + fremtid
         function buildTimeline() {
             const now = new Date();
             const start = new Date();
+            
+            // Starter 12 uker tilbake i tid
             start.setDate(start.getDate() - (start.getDay() || 7) - (12 * 7) + 1); 
+            
             const currentUke = getWeekNumber(now);
             const currentYear = now.getFullYear().toString().slice(-2);
             currentWeekId = `u${currentUke}/${currentYear}`;
+            
             for(let i = 0; i < 64; i++) {
                 const d = new Date(start); d.setDate(d.getDate() + (i * 7));
                 const w = getWeekNumber(d);
@@ -173,9 +178,11 @@
             buildTimeline(); 
             await fetchData(); 
             renderUI(); 
+            
+            // Tvinger skjermen til å hoppe til dagens uke når siden lastes
             setTimeout(() => {
                 const el = document.querySelector(`[data-week-id="${currentWeekId}"]`);
-                if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center' });
+                if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
             }, 500);
         }
 
@@ -229,7 +236,7 @@
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;
             
-            // ROBUST ID-VASK FOR Å HÅNDTERE "HODDØ" OG SPESIALTEGN
+            // ROBUST ID-VASK
             const clean = (str) => {
                 return String(str)
                     .replace(/æ/g, 'ae').replace(/Æ/g, 'ae')
@@ -237,7 +244,9 @@
                     .replace(/å/g, 'aa').replace(/Å/g, 'aa')
                     .replace(/[^a-zA-Z0-9]/g, '_'); 
             };
-            const id = `${clean(ansatt)}_${clean(prosjekt)}_${uke}`;
+            
+            // clean() på alle 3 parameterne
+            const id = `${clean(ansatt)}_${clean(prosjekt)}_${clean(uke)}`;
 
             const { error } = await db.from('bemanning').upsert({ 
                 id: id, 
@@ -318,7 +327,6 @@
                             });
                             ptr.innerHTML = ph; body.appendChild(ptr);
                         });
-                        // HER ER DEN ENDREDE TEKSTEN PÅ KNAPPEN:
                         body.insertAdjacentHTML('beforeend', `<tr><td class="name-col" style="background:#111;"><button onclick="openAssignModal('${emp.navn}')" style="font-size:10px; margin-left:20px">+ Legg til prosjekt</button></td><td colspan="${data.timeline.length}"></td></tr>`);
                     }
                 });
@@ -367,9 +375,12 @@
             const gF = document.getElementById('groupFilter').value;
             const fEmps = data.employees.filter(e => gF === 'Alle' || e.gruppe === gF);
             const n = fEmps.length || 1;
+            
+            // Grafen bruker nå fra inneværende uke og utover (siden historikken fort blir uinteressant for prognoser)
             const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
             const startIdx = Math.max(0, currentIdx - 1); 
             const chartTimeline = data.timeline.slice(startIdx);
+            
             const datasets = [];
             const labels = chartTimeline.map(t => 'U'+t.week);
             const totalUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id && !a.er_usikker).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
@@ -410,7 +421,28 @@
         async function saveEmployee() { await db.from('ansatte').update({gruppe:document.getElementById('editEmpGroup').value}).eq('id', document.getElementById('editEmpId').value); await fetchData(); renderUI(); closeModals(); }
         async function removeProjectFromEmployee(ansatt, prosjekt) { if(confirm("Fjerne fra ansatt?")) { await db.from('bemanning').delete().eq('ansatt', ansatt).eq('prosjekt', prosjekt); await fetchData(); renderUI(); } }
         function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
-        function filterProjects() { const s=document.getElementById('projectSearch').value.toLowerCase(), l=document.getElementById('projectList'); l.innerHTML=''; data.projects.filter(p => p.navn.toLowerCase().includes(s)).forEach(p => { const d=document.createElement('div'); d.style.padding="10px"; d.style.cursor="pointer"; d.innerText=p.navn; d.onclick=async()=>{ await save(activeAssignee, p.navn, currentWeekId, '0'); closeModals(); await fetchData(); renderUI(); }; l.appendChild(d); }); }
+        
+        function filterProjects() { 
+            const s=document.getElementById('projectSearch').value.toLowerCase(), l=document.getElementById('projectList'); 
+            l.innerHTML=''; 
+            data.projects.filter(p => p.navn.toLowerCase().includes(s)).forEach(p => { 
+                const d=document.createElement('div'); 
+                d.style.padding="10px"; d.style.cursor="pointer"; d.innerText=p.navn; 
+                d.onclick=async()=>{ 
+                    await save(activeAssignee, p.navn, currentWeekId, '0'); 
+                    closeModals(); 
+                    await fetchData(); 
+                    renderUI(); 
+                    
+                    // Hopper til dagens uke etter tildeling
+                    setTimeout(() => {
+                        const el = document.querySelector(`[data-week-id="${currentWeekId}"]`);
+                        if (el) el.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+                    }, 100);
+                }; 
+                l.appendChild(d); 
+            }); 
+        }
 
         checkUser();
     </script>
