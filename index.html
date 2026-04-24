@@ -171,45 +171,48 @@
         // FIX 2: FORBEDRET buildTimeline() – robust ukeberegning
         // Starter alltid på en mandag, 12 uker tilbake i ISO-uke-logikk.
         // =============================================================
+       const monthNames = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "des"];
+
+        // 1. Idiotsikker kalkulator for ISO-uker (inkluderer år og måned basert på torsdagen)
+        function getISOWeekInfo(date) {
+            const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0);
+            const day = d.getDay() || 7;
+            d.setDate(d.getDate() + 4 - day); // Spol til torsdagen i samme uke
+            
+            const year = d.getFullYear();
+            const month = d.getMonth();
+            const startOfYear = new Date(year, 0, 1, 12, 0, 0);
+            const week = Math.ceil((((d - startOfYear) / 86400000) + 1) / 7);
+            
+            return { week, year, month }; 
+        }
+
+        // 2. Bygger tidslinjen uten relative "setDate"-hopp som kan feile
         function buildTimeline() {
             const now = new Date();
+            now.setHours(12, 0, 0, 0);
             
-            // Finn mandagen i inneværende uke
-            const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay(); 
-            const monday = new Date(now);
-            monday.setDate(now.getDate() - (dayOfWeek - 1));
-            monday.setHours(0, 0, 0, 0);
+            const currentDay = now.getDay() || 7;
+            const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - currentDay + 1, 12, 0, 0);
+            const startMonday = new Date(currentMonday.getFullYear(), currentMonday.getMonth(), currentMonday.getDate() - (12 * 7), 12, 0, 0);
 
-            // Gå 12 uker tilbake fra denne mandagen
-            const start = new Date(monday);
-            start.setDate(start.getDate() - 12 * 7);
+            const currentInfo = getISOWeekInfo(now);
+            currentWeekId = `u${currentInfo.week}/${currentInfo.year.toString().slice(-2)}`;
 
-            // Bruker torsdagen for å definere inneværende uke og år riktig
-            const currentThurs = new Date(monday);
-            currentThurs.setDate(currentThurs.getDate() + 3);
-            const currentUke = getWeekNumber(currentThurs);
-            const currentYear = currentThurs.getFullYear().toString().slice(-2);
-            currentWeekId = `u${currentUke}/${currentYear}`;
+            data.timeline = []; // Tømmer listen
 
             for (let i = 0; i < 64; i++) {
-                const d = new Date(start);
-                d.setDate(d.getDate() + (i * 7)); // Dette er mandagen
-                
-                // Finn torsdagen i samme uke
-                const thurs = new Date(d);
-                thurs.setDate(thurs.getDate() + 3);
-                
-                const w = getWeekNumber(thurs);
-                const yearFull = thurs.getFullYear();
-                const id = `u${w}/${yearFull.toString().slice(-2)}`;
+                const d = new Date(startMonday.getFullYear(), startMonday.getMonth(), startMonday.getDate() + (i * 7), 12, 0, 0);
+                const info = getISOWeekInfo(d);
+                const id = `u${info.week}/${info.year.toString().slice(-2)}`;
                 
                 data.timeline.push({ 
-                    id, 
-                    week: w, 
-                    // Nå henter vi måneden basert på torsdagen, ikke mandagen
-                    month: thurs.toLocaleString('no-NO', {month:'short'}), 
-                    year: yearFull, 
-                    isPast: d < monday && id !== currentWeekId });
+                    id: id, 
+                    week: info.week, 
+                    month: monthNames[info.month], 
+                    year: info.year, 
+                    isPast: d < currentMonday && id !== currentWeekId 
+                });
             }
         }
 
