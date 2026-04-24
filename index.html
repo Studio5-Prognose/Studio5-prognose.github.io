@@ -221,14 +221,25 @@
         }
 
         async function fetchData() { 
-            const [emp, proj, ass] = await Promise.all([
+            const [emp, proj] = await Promise.all([
                 db.from('ansatte').select('*').order('navn'), 
-                db.from('prosjekter').select('*').order('navn'), 
-                db.from('bemanning').select('*').limit(10000) 
+                db.from('prosjekter').select('*').order('navn')
             ]);
             data.employees = emp.data || []; 
-            data.projects = proj.data || []; 
-            data.assignments = ass.data || [];
+            data.projects = proj.data || [];
+
+            // Henter ALL bemanning med paginering (omgår Supabase sin 1000-radersgrense)
+            let allAssignments = [];
+            let from = 0;
+            const pageSize = 1000;
+            while (true) {
+                const { data: rows, error } = await db.from('bemanning').select('*').range(from, from + pageSize - 1);
+                if (error || !rows || rows.length === 0) break;
+                allAssignments = allAssignments.concat(rows);
+                if (rows.length < pageSize) break;
+                from += pageSize;
+            }
+            data.assignments = allAssignments;
         }
 
         function getCellColor(v) {
