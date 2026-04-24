@@ -273,7 +273,7 @@
             reader.readAsArrayBuffer(file);
         }
 
-        async function save(ansatt, prosjekt, uke, inVal) {
+        async function save(ansatt, prosjekt, uke, inVal, silent = false) {
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;
             
@@ -301,9 +301,11 @@
                 if (ex) { ex.prosent = val; ex.er_usikker = isUnsure; } 
                 else data.assignments.push({ id, ansatt, prosjekt, uke, prosent: val, er_usikker: isUnsure });
                 
-                document.getElementById('saveStatus').innerText = "Lagret";
-                setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
-                renderTotaler(); updateChart(); updateStats();
+                if (!silent) {
+                    document.getElementById('saveStatus').innerText = "Lagret";
+                    setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
+                    renderTotaler(); updateChart(); updateStats();
+                }
             } else {
                 console.error("Lagringsfeil:", error);
                 alert("Feil ved lagring. Prøv å laste siden på nytt (F5).");
@@ -313,12 +315,17 @@
         async function fillMonth(ansatt, prosjekt, ukeId, value) {
             const currentIdx = data.timeline.findIndex(t => t.id === ukeId);
             const currentMonth = data.timeline[currentIdx].month;
+            document.getElementById('saveStatus').innerText = "Lagrer måned...";
+            const promises = [];
             for (let i = currentIdx; i < data.timeline.length; i++) {
                 if (data.timeline[i].month !== currentMonth) break;
                 if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) {
-                    await save(ansatt, prosjekt, data.timeline[i].id, value);
+                    promises.push(save(ansatt, prosjekt, data.timeline[i].id, value, true));
                 }
             }
+            await Promise.all(promises);
+            document.getElementById('saveStatus').innerText = "Lagret";
+            setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
             renderUI();
         }
 
