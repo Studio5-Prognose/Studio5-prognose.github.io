@@ -174,8 +174,8 @@
         function buildTimeline() {
             const now = new Date();
             
-            // Finn mandagen i inneværende uke (ISO: mandag = 1)
-            const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay(); // Gjør søndag til 7
+            // Finn mandagen i inneværende uke
+            const dayOfWeek = now.getDay() === 0 ? 7 : now.getDay(); 
             const monday = new Date(now);
             monday.setDate(now.getDate() - (dayOfWeek - 1));
             monday.setHours(0, 0, 0, 0);
@@ -184,16 +184,32 @@
             const start = new Date(monday);
             start.setDate(start.getDate() - 12 * 7);
 
-            const currentUke = getWeekNumber(now);
-            const currentYear = now.getFullYear().toString().slice(-2);
+            // Bruker torsdagen for å definere inneværende uke og år riktig
+            const currentThurs = new Date(monday);
+            currentThurs.setDate(currentThurs.getDate() + 3);
+            const currentUke = getWeekNumber(currentThurs);
+            const currentYear = currentThurs.getFullYear().toString().slice(-2);
             currentWeekId = `u${currentUke}/${currentYear}`;
 
             for (let i = 0; i < 64; i++) {
                 const d = new Date(start);
-                d.setDate(d.getDate() + (i * 7));
-                const w = getWeekNumber(d);
-                const id = `u${w}/${d.getFullYear().toString().slice(-2)}`;
-                data.timeline.push({ id, week: w, month: d.toLocaleString('no-NO', {month:'short'}), year: d.getFullYear(), isPast: d < monday && id !== currentWeekId });
+                d.setDate(d.getDate() + (i * 7)); // Dette er mandagen
+                
+                // Finn torsdagen i samme uke
+                const thurs = new Date(d);
+                thurs.setDate(thurs.getDate() + 3);
+                
+                const w = getWeekNumber(thurs);
+                const yearFull = thurs.getFullYear();
+                const id = `u${w}/${yearFull.toString().slice(-2)}`;
+                
+                data.timeline.push({ 
+                    id, 
+                    week: w, 
+                    // Nå henter vi måneden basert på torsdagen, ikke mandagen
+                    month: thurs.toLocaleString('no-NO', {month:'short'}), 
+                    year: yearFull, 
+                    isPast: d < monday && id !== currentWeekId });
             }
         }
 
