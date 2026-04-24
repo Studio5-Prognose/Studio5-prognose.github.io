@@ -453,7 +453,7 @@
                 const isCur = t.id === currentWeekId;
                 wks += `<th class="header-week ${isCur?'current-week':''}" data-week-id="${esc(t.id)}">U${t.week}</th>`;
                 if (t.year === curY) yC++; else { yrs += `<th colspan="${yC}" class="header-year">${curY}</th>`; curY = t.year; yC = 1; }
-                if (t.month === curM) mC++; else { mos += `<th colspan="${mC}" class="header-month">${esc(t.month)}</th>`; curM = t.month; mC = 1; }
+                if (t.month === curM) mC++; else { mos += `<th colspan="${mC}" class="header-month">${esc(curM)}</th>`; curM = t.month; mC = 1; }
                 if (i === data.timeline.length - 1) { yrs += `<th colspan="${yC}" class="header-year">${curY}</th>`; mos += `<th colspan="${mC}" class="header-month">${esc(t.month)}</th>`; }
             });
             head.innerHTML = `<tr>${yrs}</tr><tr>${mos}</tr><tr>${wks}</tr>`;
