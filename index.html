@@ -194,11 +194,12 @@
             setTimeout(scrollToCurrentWeek, 500);
         }
 
-        aasync function fetchData() { 
+        async function fetchData() { 
             const [emp, proj, ass] = await Promise.all([
                 db.from('ansatte').select('*').order('navn'), 
                 db.from('prosjekter').select('*').order('navn'), 
-                db.from('bemanning').select('*').limit(10000) // Fikser maks-grensen til Supabase
+                // .limit(10000) fikser grensen til Supabase slik at ingenting forsvinner!
+                db.from('bemanning').select('*').limit(10000) 
             ]);
             data.employees = emp.data || []; 
             data.projects = proj.data || []; 
@@ -244,16 +245,16 @@
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;
             
-            // ROBUST ID-VASK (Nå tvunget til små bokstaver)
+            // ROBUST ID-VASK (Tvunget til små bokstaver for å matche oppryddingen vår)
             const clean = (str) => {
                 return String(str).toLowerCase()
                     .replace(/æ/g, 'ae').replace(/Æ/g, 'ae')
                     .replace(/ø/g, 'o').replace(/Ø/g, 'o')
                     .replace(/å/g, 'aa').replace(/Å/g, 'aa')
-                    .replace(/[^a-z0-9]/g, '_');
+                    .replace(/[^a-z0-9]/g, '_'); 
             };
             
-           const id = `${clean(ansatt)}_${clean(prosjekt)}_${clean(uke)}`;
+            const id = `${clean(ansatt)}_${clean(prosjekt)}_${clean(uke)}`;
 
             const { error } = await db.from('bemanning').upsert({ 
                 id: id, 
@@ -431,7 +432,7 @@
             
             if(!navn) return; 
 
-            // DUPLIKATSJEKK (Kjøres bare hvis vi oppretter et nytt prosjekt, ikke hvis vi redigerer et gammelt)
+            // DUPLIKATSJEKK
             if (!id) {
                 const checkNavn = navn.toLowerCase().replace(/\s+/g, '');
                 const lignende = data.projects.find(p => 
@@ -441,7 +442,7 @@
 
                 if (lignende) {
                     const msg = `Advarsel: Et prosjekt med lignende navn ("${lignende.navn}") eller samme nummer (${lignende.prosjektnummer || 'tomt'}) finnes allerede. \n\nVil du opprette dette likevel?`;
-                    if (!confirm(msg)) return; // Stopper lagring hvis man trykker avbryt
+                    if (!confirm(msg)) return; 
                 }
             }
 
@@ -467,7 +468,7 @@
                 d.onclick=async()=>{ 
                     await save(activeAssignee, p.navn, currentWeekId, '0'); 
                     closeModals(); 
-                    await fetchData(); 
+                    // Fiksen ligger her: Vi kjører IKKE fetchData() før tabellen tegnes, så tallene du taster slettes ikke!
                     renderUI(); 
                     setTimeout(scrollToCurrentWeek, 100);
                 }; 
