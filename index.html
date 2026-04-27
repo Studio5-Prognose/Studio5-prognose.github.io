@@ -163,7 +163,7 @@
             <button id="deleteBtn" style="width:100%; margin-top:5px; background:var(--danger); color:white; border:none; padding:12px; border-radius:6px;" onclick="deleteProject()">Slett</button>
             
             <div id="mergeSection" style="display:none; padding: 15px; background: var(--input-bg); border-radius: 6px; margin-top: 15px; border: 1px solid var(--danger);">
-                <p style="font-size:12px; margin-top:0; color:var(--text-dim);">Slå dette sammen inn i et annet prosjekt:</p>
+                <p style="font-size:12px; margin-top:0; color:var(--text-dim);">Slå dette sammen med et annet prosjekt:</p>
                 <select id="mergeTargetProject" style="margin-bottom: 5px;"></select>
                 <button onclick="executeMerge()" style="width:100%; background:#991b1b; color:white; border:none; padding:8px; border-radius:6px; font-size:12px;">Slå sammen & slett dette</button>
             </div>
@@ -271,7 +271,7 @@
             const easterDate = new Date(year, pMonth, pDay - 3, 12, 0, 0);
             const easterWeek = getISOWeekInfo(easterDate).week;
 
-            return { 8: "Vinterferie", [easterWeek]: "Påskeferie", 28: ".", 29: ".", 30: "Sommerferie", 31: ".", 40: "Høstferie", 52: "Juleferie" };
+            return { 8: "Vinterferie", [easterWeek]: "Påskeferie", 28: "Sommerferie", 29: ".", 30: ".", 31: "Sommerferie", 40: "Høstferie", 52: "Juleferie" };
         }
 
         function getISOWeekInfo(date) {
@@ -708,13 +708,13 @@
             const unsureUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => a.ansatt_id === e.id && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
 
             if (view === 'ledig') {
-                datasets.push({ label: 'Garantert ledig', data: totalUtil.map(v => 100 - v), borderColor: '#3b82f6', fill: false, tension: 0.3 });
-                datasets.push({ label: 'Ledig (inkl. usikre)', data: unsureUtil.map(v => 100 - v), borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3 });
+                datasets.push({ label: 'Garantert ledig', data: totalUtil.map(v => 100 - v), borderColor: '#3b82f6', fill: false, tension: 0.3, pointRadius: 0 });
+                datasets.push({ label: 'Ledig (inkl. usikre)', data: unsureUtil.map(v => 100 - v), borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3, pointRadius: 0 });
             } else {
                 const faktUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => { const p = data.projects.find(x => x.id === a.prosjekt_id); return a.ansatt_id === e.id && a.uke === t.id && p && !p.er_ufakturerbart && !a.er_usikker; }).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
-                datasets.push({ label: 'Sikker Total', data: totalUtil, borderColor: '#3b82f6', fill: false, tension: 0.3 });
-                datasets.push({ label: 'Fakturerbar', data: faktUtil, borderColor: isLight ? '#1f2937' : '#fff', borderDash: [5, 5], fill: false, tension: 0.3 });
-                datasets.push({ label: 'Inkl. Usikker', data: unsureUtil, borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3 });
+                datasets.push({ label: 'Sikker Total', data: totalUtil, borderColor: '#3b82f6', fill: false, tension: 0.3, pointRadius: 0 });
+                datasets.push({ label: 'Fakturerbar', data: faktUtil, borderColor: isLight ? '#1f2937' : '#fff', borderDash: [5, 5], fill: false, tension: 0.3, pointRadius: 0 });
+                datasets.push({ label: 'Inkl. Usikker', data: unsureUtil, borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3, pointRadius: 0 });
             }
 
             const annotations = {};
