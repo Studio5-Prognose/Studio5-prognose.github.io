@@ -36,7 +36,10 @@
         th, td { border: 1px solid var(--border); text-align: center; width: 65px; height: 45px; position: relative; }
         
         .name-col { position: sticky; left: 0; background: #18181b; z-index: 20; width: 280px !important; text-align: left !important; padding: 0 15px; border-right: 2px solid var(--border); box-sizing: border-box; }
-        .name-content { display: flex; align-items: center; gap: 8px; width: 100%; }
+        
+        .name-content { display: flex; flex-direction: column; justify-content: center; width: 100%; }
+        .name-row-top { display: flex; align-items: center; gap: 8px; width: 100%; }
+        .name-sub { font-size: 10px; color: var(--text-dim); margin-left: 18px; margin-top: 2px; font-weight: normal; }
         
         .edit-btn { background: transparent; border: none; color: var(--text-dim); font-size: 11px; padding: 5px; cursor: pointer; margin-left: auto; opacity: 0.3; }
         .edit-btn:hover { opacity: 1; color: var(--accent); }
@@ -91,8 +94,10 @@
                 <option value="ledig">Vis: Ledig kapasitet</option>
                 <option value="prosjekter">Vis: Prosjekter</option>
             </select>
-            <select id="groupFilter" onchange="renderUI()"><option value="Alle">Alle Team</option><option value="Sigurd">Sigurd</option><option value="Carl">Carl</option></select>
+            <select id="avdelingFilter" onchange="renderUI()"><option value="Alle">Alle Avdelinger</option></select>
+            <select id="klyngeFilter" onchange="renderUI()"><option value="Alle">Alle Klynger</option></select>
             <button onclick="openNewProjectModal()" style="background:var(--accent); border:none; font-weight:600;">+ Nytt Prosjekt</button>
+            <button onclick="openNewEmployeeModal()" style="background:var(--accent); border:none; font-weight:600; margin-left:5px;">+ Ny Ansatt</button>
             
             <div style="display: flex; gap: 5px; border-left: 1px solid var(--border); padding-left: 12px;">
                 <button onclick="exportToExcel()" style="background:#059669; border:none;">Excel Eksport</button>
@@ -118,7 +123,18 @@
 
     <div id="projectModal" class="modal-overlay"><div class="modal-content"><h3 id="modalTitle">Prosjekt</h3><input type="hidden" id="editProjId"><input type="text" id="projNo" placeholder="Prosjektnummer"><input type="text" id="projName" placeholder="Navn..."><div style="display:flex; gap:15px; margin-bottom:15px; font-size:13px;"><label><input type="radio" name="projType" value="nordic" checked> Nordic</label><label><input type="radio" name="projType" value="nc"> NC</label><label><input type="radio" name="projType" value="uf"> Ufakt.</label></div><button onclick="saveProject()" style="width:100%; background:var(--accent); border:none; padding:12px; border-radius:6px; font-weight:600;">Lagre</button><button id="deleteBtn" style="width:100%; margin-top:5px; background:var(--danger); border:none; padding:12px; border-radius:6px;" onclick="deleteProject()">Slett</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
     <div id="assignModal" class="modal-overlay"><div class="modal-content"><h3>Tildel prosjekt</h3><input type="text" id="projectSearch" placeholder="Søk etter prosjekt..." oninput="filterProjects()"><div id="projectList" style="max-height:300px; overflow-y:auto; margin-top:10px;"></div><button onclick="closeModals()" style="width:100%; margin-top:10px;">Avbryt</button></div></div>
-    <div id="employeeModal" class="modal-overlay"><div class="modal-content"><h3>Rediger Ansatt</h3><input type="hidden" id="editEmpId"><input type="text" id="editEmpName" disabled style="opacity:0.5;"><select id="editEmpGroup"><option value="Alle">Ingen gruppe</option><option value="Sigurd">Sigurd</option><option value="Carl">Carl</option></select><button onclick="saveEmployee()" style="width:100%; background:var(--accent); border:none; padding:12px;">Lagre</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
+    
+    <div id="employeeModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Rediger Ansatt</h3>
+            <input type="hidden" id="editEmpId">
+            <input type="text" id="editEmpName" placeholder="Navn på ansatt">
+            <input type="text" id="editEmpAvdeling" placeholder="Avdeling (valgfritt)">
+            <input type="text" id="editEmpKlynge" placeholder="Klynge (valgfritt)">
+            <button onclick="saveEmployee()" style="width:100%; background:var(--accent); border:none; padding:12px;">Lagre</button>
+            <button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button>
+        </div>
+    </div>
 
     <script>
         // =============================================================
@@ -130,6 +146,7 @@
 
         let data = { employees: [], projects: [], assignments: [], timeline: [] };
         let expanded = new Set();
+        let nyligLagtTil = new Set(); // Sørger for at nye prosjekter ikke forsvinner med én gang
         let chartInstance = null;
         let activeAssignee = null;
         let currentWeekId = "";
@@ -164,26 +181,23 @@
         // TIDSREGNING & FERIER
         const monthNames = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "des"];
 
-        // NYTT: Dynamisk utregning av ferier basert på år og lokasjon (Oslo)
         function getHolidays(year) {
-            // Matematikk for å finne 1. påskedag (Meeus/Jones/Butcher)
             const a = year % 19, b = Math.floor(year / 100), c = year % 100;
             const h = (19 * a + b - Math.floor(b / 4) - Math.floor((b - Math.floor((b + 8) / 25) + 1) / 3) + 15) % 30;
             const l = (32 + 2 * (b % 4) + 2 * Math.floor(c / 4) - h - (c % 4)) % 7;
             const m = Math.floor((a + 11 * h + 22 * l) / 451);
-            const pMonth = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indeksert
+            const pMonth = Math.floor((h + l - 7 * m + 114) / 31) - 1; 
             const pDay = ((h + l - 7 * m + 114) % 31) + 1;
 
-            // Finner uken som inneholder Skjærtorsdag (3 dager før 1. påskedag)
             const easterDate = new Date(year, pMonth, pDay - 3, 12, 0, 0);
             const easterWeek = getISOWeekInfo(easterDate).week;
 
             return {
-                8: "Vinterferie",          // Fast for Oslo
-                [easterWeek]: "Påskeferie", // Dynamisk regnet ut
-                28: ".", 29: ".", 30: "Sommer", 31: ".", // Fellesferien
-                40: "Høstferie",           // Fast for Oslo
-                52: "Juleferie"             // Fast
+                8: "Vinterferie",          
+                [easterWeek]: "Påskeferie", 
+                28: "Sommerferie", 29: ".", 30: ".", 31: ".", 
+                40: "Høstferie",           
+                52: "Juleferie"             
             };
         }
 
@@ -240,6 +254,7 @@
         async function init() { 
             buildTimeline(); 
             await fetchData(); 
+            updateFilterDropdowns();
             initListeners();
             renderUI(); 
             setTimeout(scrollToCurrentWeek, 500);
@@ -264,6 +279,26 @@
                 from += pageSize;
             }
             data.assignments = allAssignments;
+        }
+
+        function updateFilterDropdowns() {
+            const avdFilter = document.getElementById('avdelingFilter');
+            const klyFilter = document.getElementById('klyngeFilter');
+            
+            const avdelinger = [...new Set(data.employees.map(e => e.avdeling).filter(Boolean))].sort();
+            const klynger = [...new Set(data.employees.map(e => e.gruppe).filter(Boolean))].sort();
+
+            avdFilter.innerHTML = '<option value="Alle">Alle Avdelinger</option>' + avdelinger.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+            klyFilter.innerHTML = '<option value="Alle">Alle Klynger</option>' + klynger.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
+        }
+
+        function getFilteredEmployees() {
+            const aF = document.getElementById('avdelingFilter').value;
+            const kF = document.getElementById('klyngeFilter').value;
+            return data.employees.filter(e => 
+                (aF === 'Alle' || e.avdeling === aF) && 
+                (kF === 'Alle' || e.gruppe === kF)
+            );
         }
 
         function getCellColor(v) {
@@ -292,11 +327,19 @@
             const map = {};
             rows.forEach(r => {
                 const key = `${r.ansatt}||${r.prosjekt}`;
-                if (!map[key]) map[key] = { ansatt: r.ansatt, prosjekt: r.prosjekt };
+                if (!map[key]) {
+                    const emp = data.employees.find(e => e.navn === r.ansatt) || {};
+                    map[key] = { 
+                        avdeling: emp.avdeling || '', 
+                        klynge: emp.gruppe || '', 
+                        ansatt: r.ansatt, 
+                        prosjekt: r.prosjekt 
+                    };
+                }
                 map[key][r.uke] = r.er_usikker ? (r.prosent + 'u') : r.prosent;
             });
 
-            const header = ['Ansatt', 'Prosjekt', ...uker];
+            const header = ['Avdeling', 'Klynge', 'Ansatt', 'Prosjekt', ...uker];
             const pivotRows = [header];
 
             const sorted = Object.values(map).sort((a, b) =>
@@ -307,7 +350,7 @@
             sorted.forEach(r => {
                 if (lastAnsatt && lastAnsatt !== r.ansatt) pivotRows.push(new Array(header.length).fill(''));
                 lastAnsatt = r.ansatt;
-                const row = [r.ansatt, r.prosjekt, ...uker.map(u => r[u] ?? '')];
+                const row = [r.avdeling, r.klynge, r.ansatt, r.prosjekt, ...uker.map(u => r[u] ?? '')];
                 pivotRows.push(row);
             });
 
@@ -315,7 +358,7 @@
             const ansatte = [...new Set(sorted.map(r => r.ansatt))];
             ansatte.forEach(ansatt => {
                 const prosjekter = sorted.filter(r => r.ansatt === ansatt);
-                const sumRow = [ansatt, 'TOTAL', ...uker.map(u => {
+                const sumRow = ['', '', ansatt, 'TOTAL', ...uker.map(u => {
                     return prosjekter.reduce((sum, r) => {
                         const v = parseFloat(String(r[u] ?? '').replace('u', '')) || 0;
                         return sum + v;
@@ -326,15 +369,15 @@
 
             const finalRows = [header];
             ansatte.forEach(ansatt => {
-                const blokk = pivotRows.filter(r => r[0] === ansatt);
+                const blokk = pivotRows.filter(r => r[2] === ansatt);
                 finalRows.push(...blokk);
-                const sum = sumRows.find(r => r[0] === ansatt);
+                const sum = sumRows.find(r => r[2] === ansatt);
                 if (sum) finalRows.push(sum);
                 finalRows.push(new Array(header.length).fill(''));
             });
 
             const wsPivot = XLSX.utils.aoa_to_sheet(finalRows);
-            wsPivot['!cols'] = [{ wch: 25 }, { wch: 45 }, ...uker.map(() => ({ wch: 7 }))];
+            wsPivot['!cols'] = [{ wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 40 }, ...uker.map(() => ({ wch: 7 }))];
 
             XLSX.utils.book_append_sheet(wb, wsPivot, "Prognose");
             XLSX.writeFile(wb, `Studio5_${new Date().toLocaleDateString('no-NO')}.xlsx`);
@@ -435,10 +478,11 @@
 
         function renderUI() {
             const view = document.getElementById('viewFilter').value;
-            const gF = document.getElementById('groupFilter').value;
             document.getElementById('chartSection').style.display = (view === 'ansatte' || view === 'ledig') ? 'block' : 'none';
             document.getElementById('statsSection').style.display = view === 'prosjekter' ? 'grid' : 'none';
-            document.getElementById('groupFilter').style.display = view === 'prosjekter' ? 'none' : 'inline-block';
+            
+            document.getElementById('avdelingFilter').style.display = view === 'prosjekter' ? 'none' : 'inline-block';
+            document.getElementById('klyngeFilter').style.display = view === 'prosjekter' ? 'none' : 'inline-block';
 
             const head = document.getElementById('tableHead');
             let yrs = '<th class="name-col header-year"></th>', mos = '<th class="name-col header-month">Navn</th>', wks = '<th class="name-col header-week"></th>';
@@ -453,12 +497,24 @@
             head.innerHTML = `<tr>${yrs}</tr><tr>${mos}</tr><tr>${wks}</tr>`;
 
             const body = document.getElementById('tableBody'); body.innerHTML = '';
+            
             if (view === 'ansatte' || view === 'ledig') {
-                data.employees.filter(e => gF === 'Alle' || e.gruppe === gF).forEach(emp => {
+                getFilteredEmployees().forEach(emp => {
                     const tr = document.createElement('tr'); tr.className='row-summary';
                     tr.onclick = (e) => { if(!e.target.closest('button')) { expanded.has(emp.navn) ? expanded.delete(emp.navn) : expanded.add(emp.navn); renderUI(); } };
                     
-                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${esc(emp.navn)} <button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-gruppe="${esc(emp.gruppe)}" data-action="edit-emp">✎</button></div></td>`;
+                    const orgTekst = [emp.avdeling, emp.gruppe].filter(Boolean).join(' / ') || 'Ingen avdeling';
+                    
+                    let h = `<td class="name-col">
+                                <div class="name-content">
+                                    <div class="name-row-top">
+                                        <span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${esc(emp.navn)} 
+                                        <button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-avd="${esc(emp.avdeling)}" data-emp-kly="${esc(emp.gruppe)}" data-action="edit-emp">✎</button>
+                                    </div>
+                                    <div class="name-sub">${esc(orgTekst)}</div>
+                                </div>
+                             </td>`;
+                             
                     data.timeline.forEach(t => {
                         const sum = data.assignments.filter(a => a.ansatt === emp.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0);
                         if (view === 'ledig') { const l = 100 - sum; h += `<td style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':'#fff'}">${l === 0 ? '' : l + '%'}</td>`; }
@@ -467,10 +523,19 @@
                     tr.innerHTML = h; body.appendChild(tr);
 
                     if (expanded.has(emp.navn)) {
-                        [...new Set(data.assignments.filter(a => a.ansatt === emp.navn).map(a => a.prosjekt))].forEach(pn => {
+                        const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
+                        const sjekkUker = data.timeline.slice(Math.max(0, currentIdx - 6)).map(t => t.id);
+
+                        const alleProsjekter = [...new Set(data.assignments.filter(a => a.ansatt === emp.navn).map(a => a.prosjekt))];
+                        const aktiveProsjekter = alleProsjekter.filter(pn => {
+                            const harTimer = data.assignments.some(a => a.ansatt === emp.navn && a.prosjekt === pn && sjekkUker.includes(a.uke) && a.prosent > 0);
+                            return harTimer || nyligLagtTil.has(`${emp.navn}_${pn}`);
+                        });
+
+                        aktiveProsjekter.forEach(pn => {
                             const pDb = data.projects.find(p => p.navn === pn);
                             const ptr = document.createElement('tr'); ptr.className='row-project';
-                            let ph = `<td class="name-col" style="padding-left:30px;"><div class="name-content"><span class="${pDb?.er_nc?'nc-tag':(pDb?.er_ufakturerbart?'uf-tag':'')}">${pDb?.prosjektnummer ? esc(pDb.prosjektnummer) + ' - ' : ''}${esc(pn)}</span><button class="remove-proj-btn" data-ansatt="${esc(emp.navn)}" data-prosjekt="${esc(pn)}" data-action="remove-proj">×</button></div></td>`;
+                            let ph = `<td class="name-col" style="padding-left:30px;"><div class="name-row-top"><span class="${pDb?.er_nc?'nc-tag':(pDb?.er_ufakturerbart?'uf-tag':'')}">${pDb?.prosjektnummer ? esc(pDb.prosjektnummer) + ' - ' : ''}${esc(pn)}</span><button class="remove-proj-btn" data-ansatt="${esc(emp.navn)}" data-prosjekt="${esc(pn)}" data-action="remove-proj">×</button></div></td>`;
                             data.timeline.forEach(t => {
                                 const a = data.assignments.find(x => x.ansatt === emp.navn && x.prosjekt === pn && x.uke === t.id);
                                 const v = a ? a.prosent : ''; const isU = a ? a.er_usikker : false; const isLocked = t.isPast && t.id !== currentWeekId;
@@ -488,11 +553,21 @@
                 data.projects.forEach(p => {
                     const tr = document.createElement('tr'); tr.className='row-summary';
                     tr.onclick = () => { expanded.has(p.navn) ? expanded.delete(p.navn) : expanded.add(p.navn); renderUI(); };
-                    let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(p.navn)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer ? esc(p.prosjektnummer)+' ' : ''}${esc(p.navn)}</span><button class="edit-btn" data-proj-id="${esc(p.id)}" data-proj-nr="${esc(p.prosjektnummer)}" data-proj-navn="${esc(p.navn)}" data-proj-nc="${p.er_nc}" data-proj-uf="${p.er_ufakturerbart}" data-action="edit-proj">✎</button></div></td>`;
+                    let h = `<td class="name-col"><div class="name-row-top"><span>${expanded.has(p.navn)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer ? esc(p.prosjektnummer)+' ' : ''}${esc(p.navn)}</span><button class="edit-btn" data-proj-id="${esc(p.id)}" data-proj-nr="${esc(p.prosjektnummer)}" data-proj-navn="${esc(p.navn)}" data-proj-nc="${p.er_nc}" data-proj-uf="${p.er_ufakturerbart}" data-action="edit-proj">✎</button></div></td>`;
                     data.timeline.forEach(t => { const s = data.assignments.filter(a => a.prosjekt === p.navn && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); h += `<td style="background-color:${getCellColor(s)}">${s>0?s+'%':'-'}</td>`; });
                     tr.innerHTML = h; body.appendChild(tr);
+                    
                     if (expanded.has(p.navn)) {
-                        [...new Set(data.assignments.filter(a => a.prosjekt === p.navn).map(a => a.ansatt))].forEach(an => {
+                        const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
+                        const sjekkUker = data.timeline.slice(Math.max(0, currentIdx - 6)).map(t => t.id);
+
+                        const alleAnsatte = [...new Set(data.assignments.filter(a => a.prosjekt === p.navn).map(a => a.ansatt))];
+                        const aktiveAnsatte = alleAnsatte.filter(an => {
+                            const harTimer = data.assignments.some(a => a.ansatt === an && a.prosjekt === p.navn && sjekkUker.includes(a.uke) && a.prosent > 0);
+                            return harTimer || nyligLagtTil.has(`${an}_${p.navn}`);
+                        });
+
+                        aktiveAnsatte.forEach(an => {
                             const ptr = document.createElement('tr'); ptr.className='row-project';
                             let ph = `<td class="name-col" style="padding-left:30px;">${esc(an)}</td>`;
                             data.timeline.forEach(t => {
@@ -519,7 +594,7 @@
                 const action = btn.dataset.action;
 
                 if (action === 'edit-emp') {
-                    openEditEmployeeModal(btn.dataset.empId, btn.dataset.empNavn, btn.dataset.empGruppe);
+                    openEditEmployeeModal(btn.dataset.empId, btn.dataset.empNavn, btn.dataset.empAvd, btn.dataset.empKly);
                 } else if (action === 'edit-proj') {
                     openEditProjectModal(btn.dataset.projId, btn.dataset.projNr, btn.dataset.projNavn, btn.dataset.projNc === 'true', btn.dataset.projUf === 'true');
                 } else if (action === 'remove-proj') {
@@ -543,11 +618,11 @@
         }
 
         function renderTotaler() {
-            const gF = document.getElementById('groupFilter').value;
             const view = document.getElementById('viewFilter').value;
             const foot = document.getElementById('tableFoot');
             if (view === 'prosjekter') { foot.innerHTML = ''; return; }
-            const fEmps = data.employees.filter(e => gF === 'Alle' || e.gruppe === gF);
+            
+            const fEmps = getFilteredEmployees();
             let h = `<tr class="row-total"><td class="name-col">${view === 'ledig' ? 'SNITT LEDIG' : 'TOTAL UTNYTTELSE'}</td>`;
             data.timeline.forEach(t => {
                 let total = 0; fEmps.forEach(e => { total += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0); });
@@ -558,11 +633,9 @@
             foot.innerHTML = h + '</tr>';
         }
 
-        // NYTT: Oppdatert updateChart for å vise feriene dynamisk
         function updateChart() {
             const view = document.getElementById('viewFilter').value;
-            const gF = document.getElementById('groupFilter').value;
-            const fEmps = data.employees.filter(e => gF === 'Alle' || e.gruppe === gF);
+            const fEmps = getFilteredEmployees();
             const n = fEmps.length || 1;
             
             const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
@@ -584,13 +657,10 @@
                 datasets.push({ label: 'Inkl. Usikker', data: unsureUtil, borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3 });
             }
 
-            // Bygger boksene for ferier
-            // Bygger boksene for ferier og strek for i dag
             const annotations = {};
             chartTimeline.forEach((t, i) => {
                 const ferierDetteAret = getHolidays(t.year);
                 
-                // 1. Tegn ferier
                 if (ferierDetteAret[t.week]) {
                     annotations[`ferie_${t.id}`] = {
                         type: 'box',
@@ -609,13 +679,12 @@
                     };
                 }
 
-                // 2. Tegn inneværende uke
                 if (t.id === currentWeekId) {
                     annotations['currentWeek'] = {
                         type: 'line',
                         xMin: i,
                         xMax: i,
-                        borderColor: '#3b82f6', // Din blå accent-farge
+                        borderColor: '#3b82f6', 
                         borderWidth: 2,
                         borderDash: [5, 5],
                         label: {
@@ -661,7 +730,22 @@
         function openAssignModal(ansatt) { activeAssignee = ansatt; document.getElementById('projectSearch').value = ""; document.getElementById('assignModal').style.display = 'flex'; filterProjects(); }
         function openNewProjectModal() { document.getElementById('modalTitle').innerText="Nytt Prosjekt"; document.getElementById('editProjId').value=""; document.getElementById('projNo').value=""; document.getElementById('projName').value=""; document.getElementById('deleteBtn').style.display="none"; document.getElementById('projectModal').style.display="flex"; }
         function openEditProjectModal(id, nr, navn, isNC, isUF) { document.getElementById('modalTitle').innerText="Rediger Prosjekt"; document.getElementById('editProjId').value=id; document.getElementById('projNo').value=nr; document.getElementById('projName').value=navn; document.querySelector(`input[name="projType"][value="${isNC?'nc':(isUF?'uf':'nordic')}"]`).checked=true; document.getElementById('deleteBtn').style.display="block"; document.getElementById('projectModal').style.display="flex"; }
-        function openEditEmployeeModal(id, navn, gruppe) { document.getElementById('editEmpId').value=id; document.getElementById('editEmpName').value=navn; document.getElementById('editEmpGroup').value=gruppe||'Alle'; document.getElementById('employeeModal').style.display='flex'; }
+        
+        function openEditEmployeeModal(id, navn, avdeling, klynge) { 
+            document.getElementById('editEmpId').value = id; 
+            document.getElementById('editEmpName').value = navn; 
+            document.getElementById('editEmpAvdeling').value = avdeling && avdeling !== 'undefined' ? avdeling : ''; 
+            document.getElementById('editEmpKlynge').value = klynge && klynge !== 'undefined' ? klynge : ''; 
+            document.getElementById('employeeModal').style.display='flex'; 
+        }
+
+        function openNewEmployeeModal() {
+            document.getElementById('editEmpId').value = "";
+            document.getElementById('editEmpName').value = "";
+            document.getElementById('editEmpAvdeling').value = "";
+            document.getElementById('editEmpKlynge').value = "";
+            document.getElementById('employeeModal').style.display='flex';
+        }
         
         async function saveProject() { 
             const id = document.getElementById('editProjId').value; 
@@ -671,20 +755,31 @@
             
             if(!navn) return; 
 
-            if (!id) {
-                const checkNavn = navn.toLowerCase().replace(/\s+/g, '');
-                const lignende = data.projects.find(p => 
-                    (nr && p.prosjektnummer === nr) || 
-                    p.navn.toLowerCase().replace(/\s+/g, '') === checkNavn
-                );
-                if (lignende) {
-                    const msg = `Advarsel: Et prosjekt med lignende navn ("${lignende.navn}") eller samme nummer (${lignende.prosjektnummer || 'tomt'}) finnes allerede. \n\nVil du opprette dette likevel?`;
-                    if (!confirm(msg)) return; 
-                }
-            }
+            if (id) {
+                const oldProj = data.projects.find(p => p.id == id);
+                const oldName = oldProj ? oldProj.navn : null;
 
-            if(id) await db.from('prosjekter').update({prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf'}).eq('id', id); 
-            else await db.from('prosjekter').insert([{prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf'}]); 
+                await db.from('prosjekter').update({prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf'}).eq('id', id); 
+                
+                // Oppdaterer timene i databasen hvis prosjektnavnet er endret
+                if (oldName && oldName !== navn) {
+                    const clean = (str) => String(str).toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'aa').replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+                    const { data: oldData } = await db.from('bemanning').select('*').eq('prosjekt', oldName);
+                    
+                    if (oldData && oldData.length > 0) {
+                        const newData = oldData.map(r => ({
+                            ...r, prosjekt: navn, id: `${clean(r.ansatt)}_${clean(navn)}_${clean(r.uke)}`
+                        }));
+                        await db.from('bemanning').delete().eq('prosjekt', oldName);
+                        await db.from('bemanning').insert(newData);
+                    }
+                }
+            } else {
+                const checkNavn = navn.toLowerCase().replace(/\s+/g, '');
+                const lignende = data.projects.find(p => (nr && p.prosjektnummer === nr) || p.navn.toLowerCase().replace(/\s+/g, '') === checkNavn);
+                if (lignende && !confirm(`Advarsel: Et prosjekt med lignende navn ("${lignende.navn}") finnes. Opprette likevel?`)) return; 
+                await db.from('prosjekter').insert([{prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf'}]); 
+            }
             
             await fetchData(); 
             renderUI(); 
@@ -692,7 +787,45 @@
         }
 
         async function deleteProject() { if(confirm("Slette prosjektet?")) { await db.from('prosjekter').delete().eq('id', document.getElementById('editProjId').value); await fetchData(); renderUI(); closeModals(); } }
-        async function saveEmployee() { await db.from('ansatte').update({gruppe:document.getElementById('editEmpGroup').value}).eq('id', document.getElementById('editEmpId').value); await fetchData(); renderUI(); closeModals(); }
+        
+        async function saveEmployee() { 
+            const id = document.getElementById('editEmpId').value;
+            const navn = document.getElementById('editEmpName').value.trim();
+            const avdeling = document.getElementById('editEmpAvdeling').value.trim();
+            const klynge = document.getElementById('editEmpKlynge').value.trim();
+            
+            if (!navn) return;
+
+            if (id) {
+                const oldEmp = data.employees.find(e => e.id == id);
+                const oldName = oldEmp ? oldEmp.navn : null;
+
+                await db.from('ansatte').update({navn: navn, avdeling: avdeling, gruppe: klynge}).eq('id', id); 
+
+                // Oppdaterer timene i databasen hvis navnet er endret
+                if (oldName && oldName !== navn) {
+                    const clean = (str) => String(str).toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'aa').replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+                    const { data: oldData } = await db.from('bemanning').select('*').eq('ansatt', oldName);
+                    
+                    if (oldData && oldData.length > 0) {
+                        const newData = oldData.map(r => ({
+                            ...r, ansatt: navn, id: `${clean(navn)}_${clean(r.prosjekt)}_${clean(r.uke)}`
+                        }));
+                        await db.from('bemanning').delete().eq('ansatt', oldName);
+                        await db.from('bemanning').insert(newData);
+                    }
+                }
+            } else {
+                if (data.employees.find(e => e.navn.toLowerCase() === navn.toLowerCase())) return alert("Finnes allerede!");
+                await db.from('ansatte').insert([{navn: navn, avdeling: avdeling, gruppe: klynge}]);
+            }
+            
+            await fetchData(); 
+            updateFilterDropdowns();
+            renderUI(); 
+            closeModals(); 
+        }
+
         async function removeProjectFromEmployee(ansatt, prosjekt) { if(confirm("Fjerne fra ansatt?")) { await db.from('bemanning').delete().eq('ansatt', ansatt).eq('prosjekt', prosjekt); await fetchData(); renderUI(); } }
         function closeModals() { document.querySelectorAll('.modal-overlay').forEach(m => m.style.display='none'); }
         
@@ -704,6 +837,7 @@
                 d.style.padding="10px"; d.style.cursor="pointer";
                 d.textContent = p.navn;  
                 d.onclick=async()=>{ 
+                    nyligLagtTil.add(`${activeAssignee}_${p.navn}`); 
                     await save(activeAssignee, p.navn, currentWeekId, '0'); 
                     closeModals(); 
                     renderUI(); 
