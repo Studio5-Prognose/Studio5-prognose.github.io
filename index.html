@@ -115,7 +115,6 @@
         </div>
     </div>
 
-    <!-- Modaler – bruker nå data-attributter i stedet for inline JS-argumenter -->
     <div id="projectModal" class="modal-overlay"><div class="modal-content"><h3 id="modalTitle">Prosjekt</h3><input type="hidden" id="editProjId"><input type="text" id="projNo" placeholder="Prosjektnummer"><input type="text" id="projName" placeholder="Navn..."><div style="display:flex; gap:15px; margin-bottom:15px; font-size:13px;"><label><input type="radio" name="projType" value="nordic" checked> Nordic</label><label><input type="radio" name="projType" value="nc"> NC</label><label><input type="radio" name="projType" value="uf"> Ufakt.</label></div><button onclick="saveProject()" style="width:100%; background:var(--accent); border:none; padding:12px; border-radius:6px; font-weight:600;">Lagre</button><button id="deleteBtn" style="width:100%; margin-top:5px; background:var(--danger); border:none; padding:12px; border-radius:6px;" onclick="deleteProject()">Slett</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
     <div id="assignModal" class="modal-overlay"><div class="modal-content"><h3>Tildel prosjekt</h3><input type="text" id="projectSearch" placeholder="Søk etter prosjekt..." oninput="filterProjects()"><div id="projectList" style="max-height:300px; overflow-y:auto; margin-top:10px;"></div><button onclick="closeModals()" style="width:100%; margin-top:10px;">Avbryt</button></div></div>
     <div id="employeeModal" class="modal-overlay"><div class="modal-content"><h3>Rediger Ansatt</h3><input type="hidden" id="editEmpId"><input type="text" id="editEmpName" disabled style="opacity:0.5;"><select id="editEmpGroup"><option value="Alle">Ingen gruppe</option><option value="Sigurd">Sigurd</option><option value="Carl">Carl</option></select><button onclick="saveEmployee()" style="width:100%; background:var(--accent); border:none; padding:12px;">Lagre</button><button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button></div></div>
@@ -124,8 +123,6 @@
         // =============================================================
         // KONFIGURASJON
         // =============================================================
-        // MERK: Bytt ut denne nøkkelen med en miljøvariabel i produksjon!
-        // Se README / kommentarer nederst i filen for hvordan.
         const supabaseUrl = 'https://gtebkasmqdvqhwesqkcq.supabase.co';
         const supabaseKey = 'sb_publishable_fh-IwZS8DpRwwU_ETq7yZg_QvezjZe5';
         const db = supabase.createClient(supabaseUrl, supabaseKey);
@@ -136,10 +133,6 @@
         let activeAssignee = null;
         let currentWeekId = "";
 
-        // =============================================================
-        // FIX 1: HJELPEFUNKSJON FOR XSS-SIKKER HTML-ESCAPING
-        // Brukes overalt der vi setter inn databaseverdier i HTML-strenger.
-        // =============================================================
         function esc(str) {
             return String(str ?? '')
                 .replace(/&/g, '&amp;')
@@ -167,17 +160,13 @@
             if (ny && ny.length >= 6) { const { error } = await db.auth.updateUser({ password: ny }); alert(error ? error.message : "Oppdatert!"); }
         }
 
-        // =============================================================
-        // FIX 2: FORBEDRET buildTimeline() – robust ukeberegning
-        // Starter alltid på en mandag, 12 uker tilbake i ISO-uke-logikk.
-        // =============================================================
-       const monthNames = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "des"];
+        // TIDSREGNING
+        const monthNames = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "des"];
 
-        // 1. Idiotsikker kalkulator for ISO-uker (inkluderer år og måned basert på torsdagen)
         function getISOWeekInfo(date) {
             const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0);
             const day = d.getDay() || 7;
-            d.setDate(d.getDate() + 4 - day); // Spol til torsdagen i samme uke
+            d.setDate(d.getDate() + 4 - day); 
             
             const year = d.getFullYear();
             const month = d.getMonth();
@@ -187,7 +176,6 @@
             return { week, year, month }; 
         }
 
-        // 2. Bygger tidslinjen uten relative "setDate"-hopp som kan feile
         function buildTimeline() {
             const now = new Date();
             now.setHours(12, 0, 0, 0);
@@ -199,7 +187,7 @@
             const currentInfo = getISOWeekInfo(now);
             currentWeekId = `u${currentInfo.week}/${currentInfo.year.toString().slice(-2)}`;
 
-            data.timeline = []; // Tømmer listen
+            data.timeline = []; 
 
             for (let i = 0; i < 64; i++) {
                 const d = new Date(startMonday.getFullYear(), startMonday.getMonth(), startMonday.getDate() + (i * 7), 12, 0, 0);
@@ -214,12 +202,6 @@
                     isPast: d < currentMonday && id !== currentWeekId 
                 });
             }
-        }
-
-        function getWeekNumber(d) {
-            d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-            return Math.ceil((((d - new Date(Date.UTC(d.getUTCFullYear(), 0, 1))) / 86400000) + 1) / 7);
         }
 
         function scrollToCurrentWeek() {
@@ -247,7 +229,6 @@
             data.employees = emp.data || []; 
             data.projects = proj.data || [];
 
-            // Henter ALL bemanning med paginering (omgår Supabase sin 1000-radersgrense)
             let allAssignments = [];
             let from = 0;
             const pageSize = 1000;
@@ -263,38 +244,27 @@
 
         function getCellColor(v) {
             if (!v || v === 0) return "transparent";
-            
-            // RØD: Over 100% (Overbooket)
             if (v > 100) return "rgba(239, 68, 68, 0.35)"; 
-            
-            // GRØNN: 90% til og med 100% (Optimalt bemannet)
             if (v >= 90) return "rgba(34, 197, 94, 0.35)"; 
-            
-            // GUL: Under 90% (Ledig kapasitet)
-            // Fargen blir litt svakere gul jo mindre prosent de har
             return `rgba(234, 179, 8, ${Math.max(0.15, (v / 90) * 0.35)})`;
         }
+
         function getLedigColor(v) {
-            if (v <= 0) return "rgba(34, 197, 94, 0.35)"; // Grønn (0% eller mindre)
-            if (v <= 50) return "rgba(234, 179, 8, 0.35)"; // Gul (opp til 50%)
-            return "rgba(239, 68, 68, 0.35)"; // Rød (over 50%)
+            if (v <= 0) return "rgba(34, 197, 94, 0.35)"; 
+            if (v <= 50) return "rgba(234, 179, 8, 0.35)"; 
+            return "rgba(239, 68, 68, 0.35)"; 
         }
+
         // EXCEL EKSPORT & IMPORT
         async function exportToExcel() {
             const { data: rows, error } = await db.from('bemanning').select('*').limit(100000);
             if (error) return alert("Feil: " + error.message);
 
             const wb = XLSX.utils.book_new();
-
-            // ── FANE 1: Rådata / backup ──────────────────────────────
             const wsBackup = XLSX.utils.json_to_sheet(rows);
             XLSX.utils.book_append_sheet(wb, wsBackup, "Backup");
 
-            // ── FANE 2: Prognose-pivot (ansatt+prosjekt × uke) ───────
-            // Bygg sortert liste over unike uker fra tidslinja
             const uker = data.timeline.map(t => t.id);
-
-            // Grupper rader: { "Ansatt||Prosjekt" → { ukeId: prosent } }
             const map = {};
             rows.forEach(r => {
                 const key = `${r.ansatt}||${r.prosjekt}`;
@@ -302,28 +272,21 @@
                 map[key][r.uke] = r.er_usikker ? (r.prosent + 'u') : r.prosent;
             });
 
-            // Bygg header-rad: Ansatt | Prosjekt | U5/26 | U6/26 | ...
             const header = ['Ansatt', 'Prosjekt', ...uker];
             const pivotRows = [header];
 
-            // Sorter etter ansatt, deretter prosjekt
             const sorted = Object.values(map).sort((a, b) =>
                 a.ansatt.localeCompare(b.ansatt, 'no') || a.prosjekt.localeCompare(b.prosjekt, 'no')
             );
 
             let lastAnsatt = null;
             sorted.forEach(r => {
-                // Tom rad mellom hver ansatt for lesbarhet
-                if (lastAnsatt && lastAnsatt !== r.ansatt) {
-                    pivotRows.push(new Array(header.length).fill(''));
-                }
+                if (lastAnsatt && lastAnsatt !== r.ansatt) pivotRows.push(new Array(header.length).fill(''));
                 lastAnsatt = r.ansatt;
-
                 const row = [r.ansatt, r.prosjekt, ...uker.map(u => r[u] ?? '')];
                 pivotRows.push(row);
             });
 
-            // Sum-rad per ansatt per uke
             const sumRows = [];
             const ansatte = [...new Set(sorted.map(r => r.ansatt))];
             ansatte.forEach(ansatt => {
@@ -337,7 +300,6 @@
                 sumRows.push(sumRow);
             });
 
-            // Sett inn sum-rader etter hver ansatt-blokk
             const finalRows = [header];
             ansatte.forEach(ansatt => {
                 const blokk = pivotRows.filter(r => r[0] === ansatt);
@@ -348,22 +310,12 @@
             });
 
             const wsPivot = XLSX.utils.aoa_to_sheet(finalRows);
-
-            // Kolonnebredder: bred for navn, smal for uker
-            wsPivot['!cols'] = [
-                { wch: 25 }, // Ansatt
-                { wch: 45 }, // Prosjekt
-                ...uker.map(() => ({ wch: 7 }))
-            ];
+            wsPivot['!cols'] = [{ wch: 25 }, { wch: 45 }, ...uker.map(() => ({ wch: 7 }))];
 
             XLSX.utils.book_append_sheet(wb, wsPivot, "Prognose");
-
             XLSX.writeFile(wb, `Studio5_${new Date().toLocaleDateString('no-NO')}.xlsx`);
         }
 
-        // =============================================================
-        // FIX 3: BATCH-IMPORT – én forespørsel i stedet for én per rad
-        // =============================================================
         async function importFromExcel(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -371,11 +323,9 @@
             reader.onload = async (e) => {
                 const arr = new Uint8Array(e.target.result);
                 const wb = XLSX.read(arr, {type: 'array'});
-                // Leser automatisk første fane (som er den flate "Backup"-fanen)
                 const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
                 document.getElementById('saveStatus').innerText = "Importerer...";
                 
-                // Deler opp i bolker på 1000 for å unngå at databasen krasjer ved store filer
                 const chunkSize = 1000;
                 let hasError = false;
                 let errMsg = "";
@@ -386,7 +336,7 @@
                     if (error) {
                         hasError = true;
                         errMsg = error.message;
-                        break; // Avbryter hvis noe går galt
+                        break; 
                     }
                 }
 
@@ -406,15 +356,13 @@
             const val = parseFloat(inVal.replace('u', '')) || 0;
             
             const clean = (str) => {
-                // Erstatter spesialtegn konsekvent – rekkefølgen er viktig
-                // for å sikre at samme prosjektnavn alltid gir samme ID.
                 return String(str).toLowerCase()
                     .replace(/æ/g, 'ae')
                     .replace(/ø/g, 'o')
                     .replace(/å/g, 'aa')
-                    .replace(/[^a-z0-9]/g, '_')  // alle spesialtegn (inkl. bindestrek, parentes, mellomrom) → _
-                    .replace(/_+/g, '_')           // flere understrek på rad → én
-                    .replace(/^_|_$/g, '');        // fjern ledende/avsluttende understrek
+                    .replace(/[^a-z0-9]/g, '_')  
+                    .replace(/_+/g, '_')            
+                    .replace(/^_|_$/g, '');        
             };
             
             const id = `${clean(ansatt)}_${clean(prosjekt)}_${clean(uke)}`;
@@ -461,10 +409,6 @@
             renderUI();
         }
 
-        // =============================================================
-        // FIX 4: renderUI() – bruker nå esc() og data-attributter
-        // for å unngå XSS og fnutter-problemer i onclick-strenger
-        // =============================================================
         function renderUI() {
             const view = document.getElementById('viewFilter').value;
             const gF = document.getElementById('groupFilter').value;
@@ -490,11 +434,10 @@
                     const tr = document.createElement('tr'); tr.className='row-summary';
                     tr.onclick = (e) => { if(!e.target.closest('button')) { expanded.has(emp.navn) ? expanded.delete(emp.navn) : expanded.add(emp.navn); renderUI(); } };
                     
-                    // Bruker data-attributter på knappen i stedet for inline onclick med streng-interpolasjon
                     let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${esc(emp.navn)} <button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-gruppe="${esc(emp.gruppe)}" data-action="edit-emp">✎</button></div></td>`;
                     data.timeline.forEach(t => {
                         const sum = data.assignments.filter(a => a.ansatt === emp.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0);
-                        if (view === 'ledig') { const l = 100 - avg; h += `<td style="background-color:${getLedigColor(l)}">${l === 0 ? '0' : l + '%'}</td>`; }
+                        if (view === 'ledig') { const l = 100 - sum; h += `<td style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':'#fff'}">${l === 0 ? '0' : l + '%'}</td>`; }
                         else { h += `<td style="background-color:${getCellColor(sum)}; color:${sum>100?'#f87171':'#fff'}">${sum>0?sum+'%':'-'}</td>`; }
                     });
                     tr.innerHTML = h; body.appendChild(tr);
@@ -539,20 +482,7 @@
                 });
             }
 
-            // Delegert event listener: én lytter på tbody fanger opp alt
-            attachTableListeners();
-
             renderTotaler(); updateChart(); updateStats();
-        }
-
-        // =============================================================
-        // FIX 4 (fortsettelse): Delegert event-håndtering
-        // Lytter settes på mainTableContainer én gang ved oppstart.
-        // Siden lytteren aldri fjernes, fungerer den selv etter at
-        // tbody blir overskrevet med ny innerHTML.
-        // =============================================================
-        function attachTableListeners() {
-            // Gjør ingenting – lytterne er satt opp én gang i initListeners()
         }
 
         function initListeners() {
@@ -598,7 +528,7 @@
             data.timeline.forEach(t => {
                 let total = 0; fEmps.forEach(e => { total += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0); });
                 const avg = Math.round(total / (fEmps.length || 1));
-                if (view === 'ledig') { const l = 100 - avg; h += `<td style="background-color:${getLedigColor(l)}">${l}%</td>`; }
+                if (view === 'ledig') { const l = 100 - avg; h += `<td style="background-color:${getLedigColor(l)}">${l === 0 ? '0' : l + '%'}</td>`; }
                 else h += `<td style="background-color:${getCellColor(avg)}">${avg}%</td>`;
             });
             foot.innerHTML = h + '</tr>';
@@ -689,7 +619,7 @@
             data.projects.filter(p => p.navn.toLowerCase().includes(s)).forEach(p => { 
                 const d=document.createElement('div'); 
                 d.style.padding="10px"; d.style.cursor="pointer";
-                d.textContent = p.navn;  // Bruker textContent – trygt mot XSS
+                d.textContent = p.navn;  
                 d.onclick=async()=>{ 
                     await save(activeAssignee, p.navn, currentWeekId, '0'); 
                     closeModals(); 
