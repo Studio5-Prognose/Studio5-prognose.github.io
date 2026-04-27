@@ -94,7 +94,7 @@
                 <option value="ledig">Vis: Ledig kapasitet</option>
                 <option value="prosjekter">Vis: Prosjekter</option>
             </select>
-            <select id="avdelingFilter" onchange="renderUI()"><option value="Alle">Alle Avdelinger</option></select>
+            <select id="avdelingFilter" onchange="updateFilterDropdowns(false); renderUI()"><option value="Alle">Alle Avdelinger</option></select>
             <select id="klyngeFilter" onchange="renderUI()"><option value="Alle">Alle Klynger</option></select>
             <button onclick="openNewProjectModal()" style="background:var(--accent); border:none; font-weight:600;">+ Nytt Prosjekt</button>
             <button onclick="openNewEmployeeModal()" style="background:var(--accent); border:none; font-weight:600; margin-left:5px;">+ Ny Ansatt</button>
@@ -131,6 +131,7 @@
             <input type="text" id="editEmpName" placeholder="Navn på ansatt">
             <input type="text" id="editEmpAvdeling" placeholder="Avdeling (valgfritt)">
             <input type="text" id="editEmpKlynge" placeholder="Klynge (valgfritt)">
+            <input type="email" id="editEmpEmail" placeholder="E-post for innlogging (valgfritt)">
             <button onclick="saveEmployee()" style="width:100%; background:var(--accent); border:none; padding:12px;">Lagre</button>
             <button onclick="closeModals()" style="width:100%; margin-top:5px;">Avbryt</button>
         </div>
@@ -146,10 +147,11 @@
 
         let data = { employees: [], projects: [], assignments: [], timeline: [] };
         let expanded = new Set();
-        let nyligLagtTil = new Set(); // Sørger for at nye prosjekter ikke forsvinner med én gang
+        let nyligLagtTil = new Set(); 
         let chartInstance = null;
         let activeAssignee = null;
         let currentWeekId = "";
+        let currentUserEmail = "";
 
         function esc(str) {
             return String(str ?? '')
@@ -163,7 +165,12 @@
         // AUTH
         async function checkUser() {
             const { data: { session } } = await db.auth.getSession();
-            if (session) { document.getElementById('login-screen').style.display = 'none'; document.getElementById('main-content').style.display = 'block'; init(); }
+            if (session) { 
+                currentUserEmail = session.user.email;
+                document.getElementById('login-screen').style.display = 'none'; 
+                document.getElementById('main-content').style.display = 'block'; 
+                init(); 
+            }
             else { document.getElementById('login-screen').style.display = 'flex'; }
         }
         async function handleLogin() {
@@ -254,7 +261,22 @@
         async function init() { 
             buildTimeline(); 
             await fetchData(); 
-            updateFilterDropdowns();
+            
+            const avdFilter = document.getElementById('avdelingFilter');
+            const avdelinger = [...new Set(data.employees.map(e => e.avdeling).filter(Boolean))].sort();
+            avdFilter.innerHTML = '<option value="Alle">Alle Avdelinger</option>' + avdelinger.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+
+            const meg = data.employees.find(e => e.email && e.email.toLowerCase() === currentUserEmail.toLowerCase());
+            if (meg && meg.avdeling) {
+                avdFilter.value = meg.avdeling;
+            }
+
+            updateFilterDropdowns(false); 
+
+            if (meg && meg.gruppe) {
+                document.getElementById('klyngeFilter').value = meg.gruppe;
+            }
+
             initListeners();
             renderUI(); 
             setTimeout(scrollToCurrentWeek, 500);
@@ -281,15 +303,30 @@
             data.assignments = allAssignments;
         }
 
-        function updateFilterDropdowns() {
+        function updateFilterDropdowns(resetAvdelinger = true) {
             const avdFilter = document.getElementById('avdelingFilter');
             const klyFilter = document.getElementById('klyngeFilter');
             
-            const avdelinger = [...new Set(data.employees.map(e => e.avdeling).filter(Boolean))].sort();
-            const klynger = [...new Set(data.employees.map(e => e.gruppe).filter(Boolean))].sort();
+            const currentAvd = avdFilter.value;
+            const currentKly = klyFilter.value;
 
-            avdFilter.innerHTML = '<option value="Alle">Alle Avdelinger</option>' + avdelinger.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+            if (resetAvdelinger) {
+                const avdelinger = [...new Set(data.employees.map(e => e.avdeling).filter(Boolean))].sort();
+                avdFilter.innerHTML = '<option value="Alle">Alle Avdelinger</option>' + avdelinger.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+                avdFilter.value = currentAvd || 'Alle';
+            }
+
+            const activeAvd = avdFilter.value;
+            const relevantEmployees = activeAvd === 'Alle' ? data.employees : data.employees.filter(e => e.avdeling === activeAvd);
+            
+            const klynger = [...new Set(relevantEmployees.map(e => e.gruppe).filter(Boolean))].sort();
             klyFilter.innerHTML = '<option value="Alle">Alle Klynger</option>' + klynger.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
+
+            if (klynger.includes(currentKly)) {
+                klyFilter.value = currentKly;
+            } else {
+                klyFilter.value = 'Alle';
+            }
         }
 
         function getFilteredEmployees() {
@@ -478,11 +515,21 @@
 
         function renderUI() {
             const view = document.getElementById('viewFilter').value;
+            const avdelingSelect = document.getElementById('avdelingFilter');
+            const klyngeSelect = document.getElementById('klyngeFilter');
+
             document.getElementById('chartSection').style.display = (view === 'ansatte' || view === 'ledig') ? 'block' : 'none';
             document.getElementById('statsSection').style.display = view === 'prosjekter' ? 'grid' : 'none';
             
-            document.getElementById('avdelingFilter').style.display = view === 'prosjekter' ? 'none' : 'inline-block';
-            document.getElementById('klyngeFilter').style.display = view === 'prosjekter' ? 'none' : 'inline-block';
+            // Logikk for visning av dropdowns
+            avdelingSelect.style.display = view === 'prosjekter' ? 'none' : 'inline-block';
+            
+            // Hvis klynge-dropdownen kun inneholder valget "Alle Klynger" (lengde 1), skjuler vi den helt
+            if (view === 'prosjekter' || klyngeSelect.options.length <= 1) {
+                klyngeSelect.style.display = 'none';
+            } else {
+                klyngeSelect.style.display = 'inline-block';
+            }
 
             const head = document.getElementById('tableHead');
             let yrs = '<th class="name-col header-year"></th>', mos = '<th class="name-col header-month">Navn</th>', wks = '<th class="name-col header-week"></th>';
@@ -509,7 +556,7 @@
                                 <div class="name-content">
                                     <div class="name-row-top">
                                         <span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${esc(emp.navn)} 
-                                        <button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-avd="${esc(emp.avdeling)}" data-emp-kly="${esc(emp.gruppe)}" data-action="edit-emp">✎</button>
+                                        <button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-avd="${esc(emp.avdeling)}" data-emp-kly="${esc(emp.gruppe)}" data-emp-epost="${esc(emp.email)}" data-action="edit-emp">✎</button>
                                     </div>
                                     <div class="name-sub">${esc(orgTekst)}</div>
                                 </div>
@@ -594,7 +641,7 @@
                 const action = btn.dataset.action;
 
                 if (action === 'edit-emp') {
-                    openEditEmployeeModal(btn.dataset.empId, btn.dataset.empNavn, btn.dataset.empAvd, btn.dataset.empKly);
+                    openEditEmployeeModal(btn.dataset.empId, btn.dataset.empNavn, btn.dataset.empAvd, btn.dataset.empKly, btn.dataset.empEpost);
                 } else if (action === 'edit-proj') {
                     openEditProjectModal(btn.dataset.projId, btn.dataset.projNr, btn.dataset.projNavn, btn.dataset.projNc === 'true', btn.dataset.projUf === 'true');
                 } else if (action === 'remove-proj') {
@@ -731,11 +778,12 @@
         function openNewProjectModal() { document.getElementById('modalTitle').innerText="Nytt Prosjekt"; document.getElementById('editProjId').value=""; document.getElementById('projNo').value=""; document.getElementById('projName').value=""; document.getElementById('deleteBtn').style.display="none"; document.getElementById('projectModal').style.display="flex"; }
         function openEditProjectModal(id, nr, navn, isNC, isUF) { document.getElementById('modalTitle').innerText="Rediger Prosjekt"; document.getElementById('editProjId').value=id; document.getElementById('projNo').value=nr; document.getElementById('projName').value=navn; document.querySelector(`input[name="projType"][value="${isNC?'nc':(isUF?'uf':'nordic')}"]`).checked=true; document.getElementById('deleteBtn').style.display="block"; document.getElementById('projectModal').style.display="flex"; }
         
-        function openEditEmployeeModal(id, navn, avdeling, klynge) { 
+        function openEditEmployeeModal(id, navn, avdeling, klynge, epost) { 
             document.getElementById('editEmpId').value = id; 
             document.getElementById('editEmpName').value = navn; 
             document.getElementById('editEmpAvdeling').value = avdeling && avdeling !== 'undefined' ? avdeling : ''; 
             document.getElementById('editEmpKlynge').value = klynge && klynge !== 'undefined' ? klynge : ''; 
+            document.getElementById('editEmpEmail').value = epost && epost !== 'undefined' ? epost : ''; 
             document.getElementById('employeeModal').style.display='flex'; 
         }
 
@@ -744,6 +792,7 @@
             document.getElementById('editEmpName').value = "";
             document.getElementById('editEmpAvdeling').value = "";
             document.getElementById('editEmpKlynge').value = "";
+            document.getElementById('editEmpEmail').value = "";
             document.getElementById('employeeModal').style.display='flex';
         }
         
@@ -761,7 +810,6 @@
 
                 await db.from('prosjekter').update({prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf'}).eq('id', id); 
                 
-                // Oppdaterer timene i databasen hvis prosjektnavnet er endret
                 if (oldName && oldName !== navn) {
                     const clean = (str) => String(str).toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'aa').replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
                     const { data: oldData } = await db.from('bemanning').select('*').eq('prosjekt', oldName);
@@ -793,6 +841,7 @@
             const navn = document.getElementById('editEmpName').value.trim();
             const avdeling = document.getElementById('editEmpAvdeling').value.trim();
             const klynge = document.getElementById('editEmpKlynge').value.trim();
+            const epost = document.getElementById('editEmpEmail').value.trim().toLowerCase();
             
             if (!navn) return;
 
@@ -800,9 +849,8 @@
                 const oldEmp = data.employees.find(e => e.id == id);
                 const oldName = oldEmp ? oldEmp.navn : null;
 
-                await db.from('ansatte').update({navn: navn, avdeling: avdeling, gruppe: klynge}).eq('id', id); 
+                await db.from('ansatte').update({navn: navn, avdeling: avdeling, gruppe: klynge, email: epost}).eq('id', id); 
 
-                // Oppdaterer timene i databasen hvis navnet er endret
                 if (oldName && oldName !== navn) {
                     const clean = (str) => String(str).toLowerCase().replace(/æ/g, 'ae').replace(/ø/g, 'o').replace(/å/g, 'aa').replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
                     const { data: oldData } = await db.from('bemanning').select('*').eq('ansatt', oldName);
@@ -817,7 +865,7 @@
                 }
             } else {
                 if (data.employees.find(e => e.navn.toLowerCase() === navn.toLowerCase())) return alert("Finnes allerede!");
-                await db.from('ansatte').insert([{navn: navn, avdeling: avdeling, gruppe: klynge}]);
+                await db.from('ansatte').insert([{navn: navn, avdeling: avdeling, gruppe: klynge, email: epost}]);
             }
             
             await fetchData(); 
