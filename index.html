@@ -437,7 +437,7 @@
                     let h = `<td class="name-col"><div class="name-content"><span>${expanded.has(emp.navn)?'▼':'▶'}</span> ${esc(emp.navn)} <button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-gruppe="${esc(emp.gruppe)}" data-action="edit-emp">✎</button></div></td>`;
                     data.timeline.forEach(t => {
                         const sum = data.assignments.filter(a => a.ansatt === emp.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0);
-                        if (view === 'ledig') { const l = 100 - sum; h += `<td style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':'#fff'}">${l === 0 ? '0' : l + '%'}</td>`; }
+                        if (view === 'ledig') { const l = 100 - sum; h += `<td style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':'#fff'}">${l === 0 ? '' : l + '%'}</td>`; }
                         else { h += `<td style="background-color:${getCellColor(sum)}; color:${sum>100?'#f87171':'#fff'}">${sum>0?sum+'%':'-'}</td>`; }
                     });
                     tr.innerHTML = h; body.appendChild(tr);
@@ -528,7 +528,7 @@
             data.timeline.forEach(t => {
                 let total = 0; fEmps.forEach(e => { total += data.assignments.filter(a => a.ansatt === e.navn && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0); });
                 const avg = Math.round(total / (fEmps.length || 1));
-                if (view === 'ledig') { const l = 100 - avg; h += `<td style="background-color:${getLedigColor(l)}">${l === 0 ? '0' : l + '%'}</td>`; }
+                if (view === 'ledig') { const l = 100 - avg; h += `<td style="background-color:${getLedigColor(l)}">${l === 0 ? '' : l + '%'}</td>`; }
                 else h += `<td style="background-color:${getCellColor(avg)}">${avg}%</td>`;
             });
             foot.innerHTML = h + '</tr>';
