@@ -271,7 +271,7 @@
             const easterDate = new Date(year, pMonth, pDay - 3, 12, 0, 0);
             const easterWeek = getISOWeekInfo(easterDate).week;
 
-            return { 8: "Vinterferie", [easterWeek]: "Påskeferie", 28: "Sommer", 29: "Sommer", 30: "Sommer", 31: "Sommer", 40: "Høstferie", 52: "Juleferie" };
+            return { 8: "Vinterferie", [easterWeek]: "Påskeferie", 28: ".", 29: ".", 30: "Sommerferie", 31: ".", 40: "Høstferie", 52: "Juleferie" };
         }
 
         function getISOWeekInfo(date) {
