@@ -278,6 +278,7 @@
             if (v <= 0) return "rgba(34, 197, 94, 0.35)"; // Grønn (0% eller mindre)
             if (v <= 50) return "rgba(234, 179, 8, 0.35)"; // Gul (opp til 50%)
             return "rgba(239, 68, 68, 0.35)"; // Rød (over 50%)
+        }
         // EXCEL EKSPORT & IMPORT
         async function exportToExcel() {
             const { data: rows, error } = await db.from('bemanning').select('*').limit(100000);
