@@ -434,14 +434,14 @@
                         p.er_nc ? 'NC' : (p.er_ufakturerbart ? 'Ufakt.' : 'Nordic')
                     ];
                     tre.forEach(m => {
-                        const personer = new Set(
-                            data.assignments.filter(a => 
-                                a.prosjekt_id === p.id && 
-                                m.uker.includes(a.uke) && 
-                                Number(a.prosent) > 0
-                            ).map(a => a.ansatt_id)
-                        );
-                        row.push(personer.size || '');
+                        const sumProsent = data.assignments
+                            .filter(a => a.prosjekt_id === p.id && m.uker.includes(a.uke))
+                            .reduce((sum, a) => sum + (Number(a.prosent) || 0), 0);
+                        
+                        const maanedsverk = m.uker.length ? (sumProsent / m.uker.length / 100) : 0;
+                        
+                        // Avrunder til 2 desimaler, f.eks. 1.5
+                        row.push(maanedsverk > 0 ? Number(maanedsverk.toFixed(2)) : '');
                     });
                     return row;
                 });
