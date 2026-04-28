@@ -421,7 +421,7 @@
                     maaneder[maaneder.length - 1].uker.push(t.id);
                 }
             });
-            const tre = maaneder.slice(0, 3); // Kun de 3 neste månedene
+            const tre = maaneder.slice(0, 6); // Kun de 6 neste månedene
 
             // Tell unike personer per prosjekt per måned
             const aktiveProsjekter = data.projects.filter(p => !p.arkivert);
