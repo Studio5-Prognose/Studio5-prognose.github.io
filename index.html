@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nordic Prognose</title>
+    <link rel="stylesheet" href="style.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+    <div id="login-screen">
+        <div class="login-box">
+            <h2 style="margin-bottom: 20px;">Studio 5</h2>
+            <input type="email" id="email" placeholder="E-post">
+            <input type="password" id="password" placeholder="Passord">
+            <button onclick="handleLogin()">Logg inn</button>
+            <p id="login-error" style="color:var(--danger); font-size:12px; margin-top:15px;"></p>
+        </div>
+    </div>
+
+    <div id="main-content">
+        <div class="header-title">
+            <span style="display: flex; align-items: center; gap: 10px;">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="flat" stroke-linejoin="flat">
+                    <polyline points="18 15 12 9 6 15"></polyline>
+                </svg>
+                Prognose
+            </span>
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="toggleTheme()" class="theme-btn" title="Bytt lyst/mørkt tema">☀️/🌙</button>
+                <button onclick="changePassword()" style="background:var(--border); border:none; color:var(--text); font-size:12px; padding:8px 15px;">Bytt passord</button>
+                <button onclick="handleLogout()" style="background:var(--danger); color:white; border:none; font-size:12px; padding:8px 15px;">Logg ut</button>
+            </div>
+        </div>
+
+        <div class="toolbar">
+            <select id="viewFilter" onchange="renderUI()">
+                <option value="ansatte">Vis: Ansatte</option>
+                <option value="ledig">Vis: Ledig kapasitet</option>
+                <option value="prosjekter">Vis: Prosjekter</option>
+            </select>
+            <select id="avdelingFilter" onchange="updateFilterDropdowns(false); renderUI()"><option value="Alle">Alle Avdelinger</option></select>
+            <select id="klyngeFilter" onchange="renderUI()"><option value="Alle">Alle Klynger</option></select>
+            
+            <button onclick="openNewProjectModal()" style="background:var(--accent); color:white; border:none; font-weight:600;">+ Nytt Prosjekt</button>
+
+            <div id="admin-tools" style="display:none; gap:5px; margin-left:5px;">
+                <button onclick="openNewEmployeeModal()" style="background:var(--accent); color:white; border:none; font-weight:600;">+ Ny Ansatt</button>
+                <div style="display: flex; gap: 5px; border-left: 1px solid var(--border); padding-left: 12px; margin-left: 5px;">
+                    <button onclick="exportToExcel()" style="background:#059669; color:white; border:none;">Excel Eksport</button>
+                    <button onclick="document.getElementById('importFile').click()" style="background:#15803d; color:white; border:none;">Excel Import</button>
+                    <button onclick="exportProsjektliste()" style="background:#7c3aed; color:white; border:none;">Prosjektliste</button>
+                    <input type="file" id="importFile" style="display:none" onchange="importFromExcel(event)" accept=".xlsx">
+                </div>
+            </div>
+
+            <div id="saveStatus" style="margin-left: auto; color: #4ade80; font-size: 12px;"></div>
+        </div>
+
+        <div id="chartSection" class="chart-container"><canvas id="utilizationChart"></canvas></div>
+
+        <div id="statsSection" class="stats-grid" style="display:none;">
+            <div class="stat-card"><div id="statNordicCount" style="font-size:22px; font-weight:800;">0</div><div style="font-size:11px; color:var(--text-dim);">NORDIC PROSJEKTER</div></div>
+            <div class="stat-card"><div id="statNC" style="font-size:22px; font-weight:800;">0</div><div style="font-size:11px; color:var(--text-dim);">NC PROSJEKTER</div></div>
+            <div class="stat-card"><div id="statPercNC" style="font-size:22px; font-weight:800;">0%</div><div style="font-size:11px; color:var(--text-dim);">% NC</div></div>
+        </div>
+
+        <div class="scroll-container" id="mainTableContainer">
+            <table><thead id="tableHead"></thead><tbody id="tableBody"></tbody><tfoot id="tableFoot"></tfoot></table>
+        </div>
+    </div>
+
+    <div id="projectModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 id="modalTitle">Prosjekt</h3>
+            <input type="hidden" id="editProjId">
+            <input type="text" id="projNo" placeholder="Prosjektnummer (valgfritt)">
+            <input type="text" id="projName" placeholder="Navn på prosjekt...">
+            <div style="display:flex; gap:15px; margin-bottom:10px; font-size:13px;">
+                <label><input type="radio" name="projType" value="nordic" checked> Nordic</label>
+                <label><input type="radio" name="projType" value="nc"> NC</label>
+                <label><input type="radio" name="projType" value="uf"> Ufakt.</label>
+            </div>
+            
+            <div id="archiveSection" style="display:none;">
+                <label class="archive-checkbox">
+                    <input type="checkbox" id="projArkivert"> Arkivert (skjules fra tildeling)
+                </label>
+            </div>
+
+            <button onclick="saveProject()" style="width:100%; background:var(--accent); color:white; border:none; padding:12px; border-radius:6px; font-weight:600;">Lagre</button>
+            <button id="deleteBtn" style="width:100%; margin-top:5px; background:var(--danger); color:white; border:none; padding:12px; border-radius:6px;" onclick="deleteProject()">Slett</button>
+            
+            <div id="mergeSection" style="display:none; padding: 15px; background: var(--input-bg); border-radius: 6px; margin-top: 15px; border: 1px solid var(--danger);">
+                <p style="font-size:12px; margin-top:0; color:var(--text-dim);">Slå dette sammen med et annet prosjekt:</p>
+                <select id="mergeTargetProject" style="margin-bottom: 5px;"></select>
+                <button onclick="executeMerge()" style="width:100%; background:#991b1b; color:white; border:none; padding:8px; border-radius:6px; font-size:12px;">Slå sammen & slett dette</button>
+            </div>
+
+            <button onclick="closeModals()" style="width:100%; margin-top:5px; background:transparent; border:1px solid var(--border); padding:10px; border-radius:6px; color:var(--text);">Avbryt</button>
+        </div>
+    </div>
+
+    <div id="assignModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Tildel prosjekt</h3>
+            <input type="text" id="projectSearch" placeholder="Søk etter prosjekt..." oninput="filterProjects()">
+            <div id="projectList" style="max-height:300px; overflow-y:auto; margin-top:10px;"></div>
+            <button onclick="closeModals()" style="width:100%; margin-top:10px; background:transparent; border:1px solid var(--border); padding:10px; border-radius:6px; color:var(--text);">Avbryt</button>
+        </div>
+    </div>
+    
+    <div id="employeeModal" class="modal-overlay">
+        <div class="modal-content">
+            <h3>Rediger Ansatt</h3>
+            <input type="hidden" id="editEmpId">
+            <input type="text" id="editEmpName" placeholder="Navn på ansatt">
+            <input type="text" id="editEmpAvdeling" placeholder="Avdeling (valgfritt)">
+            <input type="text" id="editEmpKlynge" placeholder="Klynge (valgfritt)">
+            <input type="email" id="editEmpEmail" placeholder="E-post for innlogging (valgfritt)">
+            <select id="editEmpRole" style="margin-bottom: 15px;">
+                <option value="ansatt">Vanlig Ansatt</option>
+                <option value="admin">Administrator</option>
+            </select>
+            <button onclick="saveEmployee()" style="width:100%; background:var(--accent); color:white; border:none; padding:12px; border-radius:6px; font-weight:600;">Lagre</button>
+            <button onclick="closeModals()" style="width:100%; margin-top:5px; background:transparent; border:1px solid var(--border); padding:10px; border-radius:6px; color:var(--text);">Avbryt</button>
+        </div>
+    </div>
+
+<script src="app.js"></script>
+</body>
+</html>
