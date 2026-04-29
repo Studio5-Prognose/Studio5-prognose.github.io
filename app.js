@@ -1,12 +1,22 @@
 // =============================================================
-        // KONFIGURASJON & THEME
-        // =============================================================
-        console.log('Script loaded');
-        if(localStorage.getItem('theme') === 'light') document.documentElement.classList.add('light-mode');
-        
-        function toggleTheme() {
-            if(chartInstance) updateChart(); // Oppdaterer fargene på grafen
-        }
+// KONFIGURASJON & THEME
+// =============================================================
+console.log('Script loaded');
+
+// Sjekk lagret tema. Hvis ingen verdi finnes, kan vi f.eks. anta mørkt er standard.
+const savedTheme = localStorage.getItem('theme');
+if (savedTheme === 'light') {
+    document.documentElement.classList.add('light-mode');
+} else {
+    document.documentElement.classList.remove('light-mode');
+}
+
+function toggleTheme() {
+    const isLight = document.documentElement.classList.toggle('light-mode');
+    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+    
+    if (chartInstance) updateChart(); // Oppdaterer fargene på grafen
+}
 
         const supabaseUrl = 'https://gtebkasmqdvqhwesqkcq.supabase.co';
         const supabaseKey = 'sb_publishable_fh-IwZS8DpRwwU_ETq7yZg_QvezjZe5';
