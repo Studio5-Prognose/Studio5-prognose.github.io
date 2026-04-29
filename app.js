@@ -12,10 +12,23 @@ if (savedTheme === 'light') {
 }
 
 function toggleTheme() {
-    const isLight = document.documentElement.classList.toggle('light-mode');
-    localStorage.setItem('theme', isLight ? 'light' : 'dark');
+    const html = document.documentElement;
     
-    if (chartInstance) updateChart(); // Oppdaterer fargene på grafen
+    // Sjekker om klassen finnes fra før
+    if (html.classList.contains('light-mode')) {
+        html.classList.remove('light-mode');
+        localStorage.setItem('theme', 'dark');
+        console.log("Byttet til Dark Mode");
+    } else {
+        html.classList.add('light-mode');
+        localStorage.setItem('theme', 'light');
+        console.log("Byttet til Light Mode");
+    }
+
+    // Oppdaterer grafen med nye farger hvis den eksisterer
+    if (typeof chartInstance !== 'undefined' && chartInstance) {
+        updateChart();
+    }
 }
 
         const supabaseUrl = 'https://gtebkasmqdvqhwesqkcq.supabase.co';
