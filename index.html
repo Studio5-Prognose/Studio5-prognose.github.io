@@ -405,11 +405,9 @@
         async function exportProsjektliste() {
             document.getElementById('saveStatus').innerText = "Eksporterer prosjektliste...";
 
-            // Finn de neste 3 månedene fra og med inneværende måned
             const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
             const fremtid = data.timeline.slice(currentIdx);
             
-            // Grupper uker per måned
             const maaneder = [];
             let currentMonth = null;
             fremtid.forEach(t => {
@@ -421,10 +419,16 @@
                     maaneder[maaneder.length - 1].uker.push(t.id);
                 }
             });
-            const tre = maaneder.slice(0, 6); // Kun de 6 neste månedene
+            const tre = maaneder.slice(0, 6); // Satt til 6 måneder
 
-            // Tell unike personer per prosjekt per måned
             const aktiveProsjekter = data.projects.filter(p => !p.arkivert);
+
+            const valgtAvdeling = document.getElementById('avdelingFilter').value;
+            const gyldigeAnsatte = data.employees
+                .filter(e => valgtAvdeling === 'Alle' || e.avdeling === valgtAvdeling)
+                .map(e => e.id);
+            
+            const totalKapasitet = gyldigeAnsatte.length; // Totalt antall hoder
 
             const buildRows = (prosjekter) => {
                 return prosjekter.map(p => {
@@ -435,42 +439,86 @@
                     ];
                     tre.forEach(m => {
                         const sumProsent = data.assignments
-                            .filter(a => a.prosjekt_id === p.id && m.uker.includes(a.uke))
+                            .filter(a => a.prosjekt_id === p.id && m.uker.includes(a.uke) && gyldigeAnsatte.includes(a.ansatt_id))
                             .reduce((sum, a) => sum + (Number(a.prosent) || 0), 0);
                         
                         const maanedsverk = m.uker.length ? (sumProsent / m.uker.length / 100) : 0;
-                        
-                        // Avrunder til 2 desimaler, f.eks. 1.5
                         row.push(maanedsverk > 0 ? Number(maanedsverk.toFixed(2)) : '');
                     });
                     return row;
+                }).filter(row => row.slice(3).some(val => val !== '')); 
+            };
+
+            // Hjelpefunksjon for å lage summeringsrader
+            const lagSumRad = (tittel, rader) => {
+                const sumRad = ['', tittel, 'SUM'];
+                tre.forEach((_, idx) => {
+                    const sum = rader.reduce((acc, row) => acc + (Number(row[3 + idx]) || 0), 0);
+                    sumRad.push(sum > 0 ? Number(sum.toFixed(2)) : 0);
                 });
+                return sumRad;
             };
 
             const ncProsjekter = aktiveProsjekter.filter(p => p.er_nc);
             const nordicProsjekter = aktiveProsjekter.filter(p => !p.er_nc && !p.er_ufakturerbart);
             const ufaktProsjekter = aktiveProsjekter.filter(p => p.er_ufakturerbart);
 
+            const ncRader = buildRows(ncProsjekter);
+            const nordicRader = buildRows(nordicProsjekter);
+            const ufaktRader = buildRows(ufaktProsjekter);
+
             const header = ['Nr', 'Prosjekt', 'Type', ...tre.map(m => m.label)];
+            const rows = [header];
 
-            const rows = [
-                header,
-                ['NC PROSJEKTER', '', '', ...tre.map(() => '')],
-                ...buildRows(ncProsjekter),
-                new Array(header.length).fill(''),
-                ['NORDIC PROSJEKTER', '', '', ...tre.map(() => '')],
-                ...buildRows(nordicProsjekter),
-            ];
-
-            // Legg til ufakturerbare hvis det finnes noen
-            if (ufaktProsjekter.length > 0) {
+            if (ncRader.length > 0) {
+                rows.push(['NC PROSJEKTER', '', '', ...tre.map(() => '')]);
+                rows.push(...ncRader);
+                rows.push(lagSumRad('Sum NC', ncRader));
                 rows.push(new Array(header.length).fill(''));
-                rows.push(['UFAKTURERBARE', '', '', ...tre.map(() => '')]);
-                rows.push(...buildRows(ufaktProsjekter));
             }
 
+            if (nordicRader.length > 0) {
+                rows.push(['NORDIC PROSJEKTER', '', '', ...tre.map(() => '')]);
+                rows.push(...nordicRader);
+                rows.push(lagSumRad('Sum Nordic', nordicRader));
+                rows.push(new Array(header.length).fill(''));
+            }
+
+            if (ufaktRader.length > 0) {
+                rows.push(['UFAKTURERBARE', '', '', ...tre.map(() => '')]);
+                rows.push(...ufaktRader);
+                rows.push(lagSumRad('Sum Ufakturerbart', ufaktRader));
+                rows.push(new Array(header.length).fill(''));
+            }
+
+            // OPPSUMMERING NEDERST
+            const alleRader = [...ncRader, ...nordicRader, ...ufaktRader];
+            const totalSumRad = lagSumRad('TOTALT PLANLAGT', alleRader);
+            
+            const kapasitetRad = ['', 'TOTAL KAPASITET', 'Mnd.verk'];
+            tre.forEach(() => kapasitetRad.push(totalKapasitet));
+
+            const utnyttelseBrokRad = ['', 'UTNYTTELSE (brøk)', 'Mnd.verk'];
+            tre.forEach((_, idx) => {
+                const planlagt = totalSumRad[3 + idx] || 0;
+                utnyttelseBrokRad.push(`${planlagt} av ${totalKapasitet}`);
+            });
+
+            const utnyttelseProsentRad = ['', 'UTNYTTELSE (%)', '%'];
+            tre.forEach((_, idx) => {
+                const planlagt = totalSumRad[3 + idx] || 0;
+                const prosent = totalKapasitet > 0 ? Math.round((planlagt / totalKapasitet) * 100) : 0;
+                utnyttelseProsentRad.push(prosent + '%');
+            });
+
+            rows.push(['OPPSUMMERING', '', '', ...tre.map(() => '')]);
+            rows.push(totalSumRad);
+            rows.push(kapasitetRad);
+            rows.push(utnyttelseBrokRad);
+            rows.push(utnyttelseProsentRad);
+
             const ws = XLSX.utils.aoa_to_sheet(rows);
-            ws['!cols'] = [{ wch: 12 }, { wch: 45 }, { wch: 10 }, ...tre.map(() => ({ wch: 14 }))];
+            ws['!cols'] = [{ wch: 12 }, { wch: 45 }, { wch: 10 }, ...tre.map(() => ({ wch: 15 }))];
 
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Prosjektliste");
