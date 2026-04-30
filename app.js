@@ -787,7 +787,7 @@ function toggleTheme() {
             chartTimeline.forEach((t, i) => {
                 const ferierDetteAret = getHolidays(t.year);
                 if (ferierDetteAret[t.week]) {
-                    annotations[`ferie_${t.id}`] = { type: 'box', xMin: i - 0.5, xMax: i + 0.5, backgroundColor: 'rgba(34, 197, 94, 0.1)', borderWidth: 0, label: { display: true, content: ferierDetteAret[t.week], position: 'center', rotation: -90, color: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)', font: { size: 11, weight: 'bold' } } };
+                    annotations[`ferie_${t.id}`] = { type: 'box', xMin: i - 0.5, xMax: i + 0.5, backgroundColor: 'rgba(34, 197, 94, 0.1)', borderWidth: 0, label: { display: true, content: ferierDetteAret[t.week], position: 'center', rotation: -90, color: isLight ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)', font: { size: 13, weight: 'normal' } } };
                 }
                 if (t.id === currentWeekId) {
                     annotations['currentWeek'] = { type: 'line', xMin: i, xMax: i, borderColor: '#3b82f6', borderWidth: 2, borderDash: [5, 5], label: { display: true, content: '', position: 'start', backgroundColor: '#3b82f6', color: '#fff', font: { size: 10, weight: 'bold' }, yAdjust: 5 } };
