@@ -2,6 +2,16 @@
 // KONFIGURASJON & THEME
 // =============================================================
 console.log('Script loaded');
+const saveStatusEl = document.getElementById('saveStatus');
+if (saveStatusEl) saveStatusEl.textContent = 'JS loaded';
+window.addEventListener('error', (evt) => {
+    if (saveStatusEl) saveStatusEl.textContent = 'JS error: ' + evt.message;
+    console.error('Unhandled JS error', evt.message, evt.error);
+});
+window.addEventListener('unhandledrejection', (evt) => {
+    if (saveStatusEl) saveStatusEl.textContent = 'JS promise error';
+    console.error('Unhandled promise rejection', evt.reason);
+});
 
 // Sjekk lagret tema. Hvis ingen verdi finnes, kan vi f.eks. anta mørkt er standard.
 const savedTheme = localStorage.getItem('theme');
@@ -539,7 +549,7 @@ function toggleTheme() {
             
             if (view === 'ansatte' || view === 'ledig') {
                 getFilteredEmployees().forEach(emp => {
-                    const tr = document.createElement('tr'); tr.className='row-summary';
+                    const tr = document.createElement('tr'); tr.className='row-summary'; tr.dataset.empId = emp.id;
                     tr.onclick = (e) => { if(!e.target.closest('button')) { expanded.has(emp.id) ? expanded.delete(emp.id) : expanded.add(emp.id); renderUI(); } };
                     
                     const orgTekst = [emp.avdeling, emp.gruppe].filter(Boolean).join(' / ') || 'Ingen avdeling';
@@ -641,8 +651,17 @@ function toggleTheme() {
             });
 
             const saveTimeouts = {};
+            let visualUpdateTimer = null;
+            const scheduleVisualUpdates = () => {
+                clearTimeout(visualUpdateTimer);
+                visualUpdateTimer = setTimeout(() => {
+                    renderTotaler();
+                    updateChart();
+                    updateStats();
+                }, 150);
+            };
 
-            const handleCellUpdate = (inp) => {
+            const handleCellUpdate = (inp, shouldRenderVisuals = true) => {
                 if (!inp) return;
                 console.log('Cell update triggered');
                 const aId = inp.dataset.ansattId;
@@ -676,8 +695,12 @@ function toggleTheme() {
 
                 oppdaterLokalSum(aId, pId, uke);
                 renderTotaler();
-                updateChart();
-                updateStats();
+                if (shouldRenderVisuals) {
+                    updateChart();
+                    updateStats();
+                } else {
+                    scheduleVisualUpdates();
+                }
 
                 clearTimeout(saveTimeouts[id]);
                 saveTimeouts[id] = setTimeout(async () => { await save(aId, pId, uke, inp.value, true); }, 500);
@@ -686,19 +709,19 @@ function toggleTheme() {
             window.addEventListener('input', (e) => {
                 console.log('Input event fired');
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    handleCellUpdate(e.target);
+                    handleCellUpdate(e.target, false);
                 }
             }, true);
 
             window.addEventListener('change', (e) => {
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    handleCellUpdate(e.target);
+                    handleCellUpdate(e.target, true);
                 }
             }, true);
 
             window.addEventListener('blur', (e) => {
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    handleCellUpdate(e.target);
+                    handleCellUpdate(e.target, true);
                 }
             }, true);
 
@@ -814,7 +837,13 @@ function toggleTheme() {
 
     let targetCell;
     if (view === 'ansatte' || view === 'ledig') {
-        targetCell = findIdCell('sum_emp', ansattId, uke);
+        const row = document.querySelector(`tr.row-summary[data-emp-id="${ansattId}"]`);
+        const weekIndex = data.timeline.findIndex(t => String(t.id) === String(uke));
+        if (row && weekIndex >= 0 && row.cells[weekIndex + 1]) {
+            targetCell = row.cells[weekIndex + 1];
+        } else {
+            targetCell = findIdCell('sum_emp', ansattId, uke);
+        }
         console.error('oppdaterLokalSum employee', { targetCellId: targetCell?.id, view, ansattId, uke });
         if (!targetCell) return;
 
@@ -835,15 +864,12 @@ function toggleTheme() {
         }
         console.log('Updated targetCell.textContent to:', targetCell.textContent);
     } else {
-        targetCell = findIdCell('sum_proj', prosjektId, uke);
-        if (!targetCell) {
-            const row = document.querySelector(`tr.row-summary[data-proj-id="${prosjektId}"]`);
-            if (row) {
-                const weekIndex = data.timeline.findIndex(t => String(t.id) === String(uke));
-                if (weekIndex >= 0 && row.cells[weekIndex + 1]) {
-                    targetCell = row.cells[weekIndex + 1];
-                }
-            }
+        const row = document.querySelector(`tr.row-summary[data-proj-id="${prosjektId}"]`);
+        const weekIndex = data.timeline.findIndex(t => String(t.id) === String(uke));
+        if (row && weekIndex >= 0 && row.cells[weekIndex + 1]) {
+            targetCell = row.cells[weekIndex + 1];
+        } else {
+            targetCell = findIdCell('sum_proj', prosjektId, uke);
         }
         console.error('oppdaterLokalSum project', { targetCellId: targetCell?.id, view, prosjektId, uke });
         if (!targetCell) return;
