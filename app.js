@@ -487,6 +487,73 @@ function toggleTheme() {
             reader.readAsArrayBuffer(file);
         }
 
+        async function importAnsatteFromExcel(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const arr = new Uint8Array(e.target.result);
+        const wb = XLSX.read(arr, {type: 'array'});
+        const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+
+        if (!json.length) return alert("Filen er tom.");
+
+        // Valider at påkrevde kolonner finnes (case-insensitive)
+        const paakrevd = ['navn'];
+        const headers = Object.keys(json[0]);
+        const headerMap = {};
+        headers.forEach(h => headerMap[h.toLowerCase()] = h);
+        const mangler = paakrevd.filter(k => !headerMap[k]);
+        if (mangler.length) return alert(`Mangler kolonne(r): ${mangler.join(', ')}`);
+
+        // Bygg opp rader – hopp over hvis navn allerede finnes
+        const eksisterende = data.employees.map(e => e.navn.toLowerCase());
+        const nyeAnsatte = [];
+        const duplikater = [];
+
+        json.forEach(row => {
+            const navn = String(row[headerMap['navn']] || '').trim();
+            if (!navn) return;
+            if (eksisterende.includes(navn.toLowerCase())) {
+                duplikater.push(navn);
+                return;
+            }
+            nyeAnsatte.push({
+                navn:      navn,
+                avdeling:  String(row[headerMap['avdeling']] || '').trim() || null,
+                gruppe:    String(row[headerMap['gruppe']]   || '').trim() || null,
+                email:     String(row[headerMap['email']]    || '').trim().toLowerCase() || null,
+                rolle:     ['admin','ansatt'].includes(String(row[headerMap['rolle']] || '').toLowerCase()) 
+                               ? String(row[headerMap['rolle']]).toLowerCase() 
+                               : 'ansatt'
+            });
+        });
+
+        if (!nyeAnsatte.length) {
+            return alert(`Ingen nye ansatte å importere.\nAllerede i systemet: ${duplikater.join(', ')}`);
+        }
+
+        let bekreft = `Importerer ${nyeAnsatte.length} ansatte.`;
+        if (duplikater.length) bekreft += `\n\nHopper over ${duplikater.length} som allerede finnes:\n${duplikater.join(', ')}`;
+        if (!confirm(bekreft)) return;
+
+        document.getElementById('saveStatus').innerText = "Importerer ansatte...";
+
+        const { error } = await db.from('ansatte').insert(nyeAnsatte);
+        if (error) {
+            alert("Importfeil: " + error.message);
+            document.getElementById('saveStatus').innerText = "";
+        } else {
+            alert(`${nyeAnsatte.length} ansatte lagt til!`);
+            await fetchData();
+            updateFilterDropdowns();
+            renderUI();
+            document.getElementById('saveStatus').innerText = "";
+        }
+    };
+    reader.readAsArrayBuffer(file);
+}
+
         async function save(ansattId, prosjektId, uke, inVal, silent = false) {
             const isUnsure = inVal.toLowerCase().endsWith('u');
             const val = parseFloat(inVal.replace('u', '')) || 0;

@@ -54,8 +54,10 @@
                 <div style="display: flex; gap: 5px; border-left: 1px solid var(--border); padding-left: 12px; margin-left: 5px;">
                     <button onclick="exportToExcel()" style="background:#059669; color:white; border:none;">Excel Eksport</button>
                     <button onclick="document.getElementById('importFile').click()" style="background:#15803d; color:white; border:none;">Excel Import</button>
+                    <button onclick="document.getElementById('importAnsatteFile').click()" style="background:#dc2626; color:white; border:none;" title="Excel-filen må ha første rad som kolonneoverskrifter: navn (påkrevd), avdeling, gruppe, email, rolle ('ansatt' eller 'admin', default 'ansatt'). Hver påfølgende rad representerer en ansatt.">Import Ansatte</button>
                     <button onclick="exportProsjektliste()" style="background:#7c3aed; color:white; border:none;">Prosjektliste</button>
                     <input type="file" id="importFile" style="display:none" onchange="importFromExcel(event)" accept=".xlsx">
+                    <input type="file" id="importAnsatteFile" style="display:none" onchange="importAnsatteFromExcel(event)" accept=".xlsx">
                 </div>
             </div>
 
