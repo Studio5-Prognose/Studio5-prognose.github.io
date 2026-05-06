@@ -628,8 +628,8 @@ function toggleTheme() {
                     tr.onclick = (e) => { if(!e.target.closest('button')) { expanded.has(emp.id) ? expanded.delete(emp.id) : expanded.add(emp.id); renderUI(); } };
                     
                     const orgTekst = [emp.avdeling, emp.gruppe].filter(Boolean).join(' / ') || 'Ingen avdeling';
-                    const canEditOwnRow = currentUserRole === 'admin' || emp.id === currentUserId;
-                    const editBtnHtml = currentUserRole === 'admin' ? `<button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-avd="${esc(emp.avdeling)}" data-emp-kly="${esc(emp.gruppe)}" data-emp-epost="${esc(emp.email)}" data-emp-role="${esc(emp.rolle)}" data-action="edit-emp">✎</button>` : '';
+                    const canEditOwnRow = (currentUserRole === 'admin' || currentUserRole === 'superbruker') || emp.id === currentUserId;
+                    const editBtnHtml = (currentUserRole === 'admin' || currentUserRole === 'superbruker') ? `<button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-avd="${esc(emp.avdeling)}" data-emp-kly="${esc(emp.gruppe)}" data-emp-epost="${esc(emp.email)}" data-emp-role="${esc(emp.rolle)}" data-action="edit-emp">✎</button>` : '';
 
                     let h = `<td class="name-col"><div class="name-content"><div class="name-row-top"><span>${expanded.has(emp.id)?'▼':'▶'}</span> ${esc(emp.navn)} ${editBtnHtml}</div><div class="name-sub">${esc(orgTekst)}</div></div></td>`;
                              
@@ -650,7 +650,7 @@ function toggleTheme() {
                             const pDb = data.projects.find(p => String(p.id) === String(pId));
                             if (!pDb) return;
                             const ptr = document.createElement('tr'); ptr.className='row-project';
-                            const rmBtnHtml = currentUserRole === 'admin' ? `<button class="remove-proj-btn" data-ansatt-id="${esc(emp.id)}" data-prosjekt-id="${esc(pId)}" data-action="remove-proj">×</button>` : '';
+                            const rmBtnHtml = (currentUserRole === 'admin' || currentUserRole === 'superbruker') ? `<button class="remove-proj-btn" data-ansatt-id="${esc(emp.id)}" data-prosjekt-id="${esc(pId)}" data-action="remove-proj">×</button>` : '';
                             
                             let ph = `<td class="name-col" style="padding-left:30px;"><div class="name-row-top"><span class="${pDb.er_nc?'nc-tag':(pDb.er_ufakturerbart?'uf-tag':'')}">${pDb.prosjektnummer ? esc(pDb.prosjektnummer) + ' - ' : ''}${esc(pDb.navn)}</span>${rmBtnHtml}</div></td>`;
                             data.timeline.forEach(t => {
@@ -674,7 +674,7 @@ function toggleTheme() {
                     const tr = document.createElement('tr'); tr.className='row-summary'; tr.dataset.projId = p.id;
                     tr.onclick = () => { expanded.has(p.id) ? expanded.delete(p.id) : expanded.add(p.id); renderUI(); };
                     
-                    const editBtnHtml = currentUserRole === 'admin' ? `<button class="edit-btn" data-proj-id="${esc(p.id)}" data-proj-nr="${esc(p.prosjektnummer)}" data-proj-navn="${esc(p.navn)}" data-proj-nc="${p.er_nc}" data-proj-uf="${p.er_ufakturerbart}" data-proj-ark="${p.arkivert}" data-action="edit-proj">✎</button>` : '';
+                    const editBtnHtml = (currentUserRole === 'admin' || currentUserRole === 'superbruker') ? `<button class="edit-btn" data-proj-id="${esc(p.id)}" data-proj-nr="${esc(p.prosjektnummer)}" data-proj-navn="${esc(p.navn)}" data-proj-nc="${p.er_nc}" data-proj-uf="${p.er_ufakturerbart}" data-proj-ark="${p.arkivert}" data-action="edit-proj">✎</button>` : '';
 
                     let h = `<td class="name-col"><div class="name-row-top"><span>${expanded.has(p.id)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer ? esc(p.prosjektnummer)+' ' : ''}${esc(p.navn)} ${p.arkivert?'(Arkivert)':''}</span>${editBtnHtml}</div></td>`;
                     
@@ -693,7 +693,7 @@ function toggleTheme() {
                             const ptr = document.createElement('tr'); ptr.className='row-project';
                             let ph = `<td class="name-col" style="padding-left:30px;">${esc(empDb.navn)}</td>`;
                             
-                            const canEditRow = currentUserRole === 'admin' || String(aId) === String(currentUserId);
+                            const canEditRow = (currentUserRole === 'admin' || currentUserRole === 'superbruker') || String(aId) === String(currentUserId);
 
                             data.timeline.forEach(t => {
                                 const a = data.assignments.find(x => String(x.ansatt_id) === String(aId) && String(x.prosjekt_id) === String(p.id) && x.uke === t.id);
@@ -891,7 +891,7 @@ function toggleTheme() {
         function openEditProjectModal(id, nr, navn, isNC, isUF, isArkivert) { 
             document.getElementById('modalTitle').innerText="Rediger Prosjekt"; document.getElementById('editProjId').value=id; document.getElementById('projNo').value=nr; document.getElementById('projName').value=navn; document.querySelector(`input[name="projType"][value="${isNC?'nc':(isUF?'uf':'nordic')}"]`).checked=true; document.getElementById('projArkivert').checked = isArkivert; document.getElementById('archiveSection').style.display="block"; document.getElementById('deleteBtn').style.display="block"; 
 
-            if (currentUserRole === 'admin') {
+            if (currentUserRole === 'admin' || currentUserRole === 'superbruker') {
                 document.getElementById('mergeSection').style.display="block";
                 document.getElementById('mergeTargetProject').innerHTML = '<option value="">-- Velg prosjekt å slå sammen med --</option>' + data.projects.filter(p => p.id !== id).map(p => `<option value="${p.id}">${esc(p.navn)}</option>`).join('');
             } else { document.getElementById('mergeSection').style.display="none"; }
