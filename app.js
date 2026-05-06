@@ -13,7 +13,7 @@ window.addEventListener('unhandledrejection', (evt) => {
     console.error('Unhandled promise rejection', evt.reason);
 });
 
-// Sjekk lagret tema. Hvis ingen verdi finnes, kan vi f.eks. anta mørkt er standard.
+// Sjekk lagret tema
 const savedTheme = localStorage.getItem('theme');
 if (savedTheme === 'light') {
     document.documentElement.classList.add('light-mode');
@@ -23,19 +23,13 @@ if (savedTheme === 'light') {
 
 function toggleTheme() {
     const html = document.documentElement;
-    
-    // Sjekker om klassen finnes fra før
     if (html.classList.contains('light-mode')) {
         html.classList.remove('light-mode');
         localStorage.setItem('theme', 'dark');
-        console.log("Byttet til Dark Mode");
     } else {
         html.classList.add('light-mode');
         localStorage.setItem('theme', 'light');
-        console.log("Byttet til Light Mode");
     }
-
-    // Oppdaterer grafen med nye farger hvis den eksisterer
     if (typeof chartInstance !== 'undefined' && chartInstance) {
         updateChart();
     }
@@ -55,6 +49,102 @@ function toggleTheme() {
         let currentUserEmail = "";
         let currentUserId = "";
         let currentUserRole = "ansatt";
+
+        // ── Undo-stack ──────────────────────────────────────
+        const undoStack = [];
+        const MAX_UNDO = 50;
+        let _batchUndoActive = false; // suppress per-cell undo during batch ops
+
+        // ── Pending saves (for flush on unload) ─────────────
+        const saveTimeouts = {};
+        const pendingSaves = {}; // id -> { ansattId, prosjektId, uke, value }
+
+        function pushUndo(entries) {
+            // entries: [{ ansattId, prosjektId, uke, oldValue, oldUsikker }]
+            undoStack.push(entries);
+            if (undoStack.length > MAX_UNDO) undoStack.shift();
+        }
+
+        function showToast(msg) {
+            const el = document.createElement('div');
+            el.className = 'undo-toast';
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 1200);
+        }
+
+        async function performUndo() {
+            if (!undoStack.length) { showToast('Ingenting å angre'); return; }
+            const entries = undoStack.pop();
+            document.getElementById('saveStatus').innerText = "Angrer...";
+            const promises = entries.map(e => {
+                const valStr = e.oldValue > 0 ? (String(e.oldValue) + (e.oldUsikker ? 'u' : '')) : '0';
+                return save(e.ansattId, e.prosjektId, e.uke, valStr, true);
+            });
+            await Promise.all(promises);
+            document.getElementById('saveStatus').innerText = "Angret";
+            setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
+            renderUI();
+            showToast(`Angret ${entries.length} ${entries.length === 1 ? 'celle' : 'celler'}`);
+        }
+
+        // ── Context menu ────────────────────────────────────
+        let contextMenuEl = null;
+
+        function createContextMenu() {
+            if (contextMenuEl) return;
+            contextMenuEl = document.createElement('div');
+            contextMenuEl.className = 'context-menu';
+            contextMenuEl.style.display = 'none';
+            contextMenuEl.innerHTML = `
+                <div class="context-menu-item" data-ctx="fill-month">📅 Fyll måned</div>
+                <div class="context-menu-item" data-ctx="fill-quarter">📊 Fyll kvartal</div>
+                <div class="context-menu-sep"></div>
+                <div class="context-menu-item danger" data-ctx="clear-month">🗑 Tøm måned</div>
+            `;
+            document.body.appendChild(contextMenuEl);
+
+            document.addEventListener('click', () => hideContextMenu());
+            document.addEventListener('scroll', () => hideContextMenu(), true);
+        }
+
+        function hideContextMenu() {
+            if (contextMenuEl) contextMenuEl.style.display = 'none';
+        }
+
+        function showContextMenu(x, y, ansattId, prosjektId, uke, currentValue) {
+            createContextMenu();
+            contextMenuEl.style.left = x + 'px';
+            contextMenuEl.style.top = y + 'px';
+            contextMenuEl.style.display = 'block';
+
+            // Ensure menu doesn't overflow viewport
+            const rect = contextMenuEl.getBoundingClientRect();
+            if (rect.right > window.innerWidth) contextMenuEl.style.left = (x - rect.width) + 'px';
+            if (rect.bottom > window.innerHeight) contextMenuEl.style.top = (y - rect.height) + 'px';
+
+            // Remove old listeners by replacing items
+            contextMenuEl.querySelectorAll('.context-menu-item').forEach(item => {
+                const clone = item.cloneNode(true);
+                item.parentNode.replaceChild(clone, item);
+            });
+
+            contextMenuEl.querySelector('[data-ctx="fill-month"]').addEventListener('click', (e) => {
+                e.stopPropagation();
+                hideContextMenu();
+                fillMonth(ansattId, prosjektId, uke, currentValue);
+            });
+            contextMenuEl.querySelector('[data-ctx="fill-quarter"]').addEventListener('click', (e) => {
+                e.stopPropagation();
+                hideContextMenu();
+                fillQuarter(ansattId, prosjektId, uke, currentValue);
+            });
+            contextMenuEl.querySelector('[data-ctx="clear-month"]').addEventListener('click', (e) => {
+                e.stopPropagation();
+                hideContextMenu();
+                clearMonth(ansattId, prosjektId, uke);
+            });
+        }
 
         function esc(str) {
             return String(str ?? '')
@@ -109,7 +199,6 @@ function toggleTheme() {
             const pDay = ((h + l - 7 * m + 114) % 31) + 1;
             const easterDate = new Date(year, pMonth, pDay - 3, 12, 0, 0);
             const easterWeek = getISOWeekInfo(easterDate).week;
-
             return { 8: "Vinterferie", [easterWeek]: "Påskeferie", 28: "Sommerferie", 29: ".", 30: ".", 31: "Sommerferie", 40: "Høstferie", 52: "Juleferie" };
         }
 
@@ -127,7 +216,6 @@ function toggleTheme() {
         function buildTimeline() {
             const now = new Date();
             now.setHours(12, 0, 0, 0);
-            
             const currentDay = now.getDay() || 7;
             const currentMonday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - currentDay + 1, 12, 0, 0);
             const startMonday = new Date(currentMonday.getFullYear(), currentMonday.getMonth(), currentMonday.getDate() - (12 * 7), 12, 0, 0);
@@ -144,13 +232,75 @@ function toggleTheme() {
             }
         }
 
-        function scrollToCurrentWeek() {
+        function scrollToCurrentWeek(instant) {
             const container = document.getElementById('mainTableContainer');
             const currentWeekEl = document.querySelector(`th[data-week-id="${currentWeekId}"]`);
             if (container && currentWeekEl) {
                 const scrollPos = currentWeekEl.offsetLeft - 280;
-                container.scrollTo({ left: Math.max(0, scrollPos), behavior: 'smooth' });
+                const pos = Math.max(0, scrollPos);
+                if (instant) {
+                    container.scrollLeft = pos;
+                } else {
+                    container.scrollTo({ left: pos, behavior: 'smooth' });
+                }
+                // Sync top scrollbar after a tick
+                setTimeout(syncTopFromMain, 50);
             }
+        }
+
+        // ── Dual scrollbar setup ────────────────────────────
+        let _dualScrollBound = false;
+        let _activeScroller = null;
+
+        function getScrollRatio(el) {
+            const max = el.scrollWidth - el.clientWidth;
+            return max > 0 ? el.scrollLeft / max : 0;
+        }
+
+        function setScrollRatio(el, ratio) {
+            const max = el.scrollWidth - el.clientWidth;
+            el.scrollLeft = ratio * max;
+        }
+
+        function syncTopFromMain() {
+            const scrollTop = document.getElementById('scrollTop');
+            const scrollMain = document.getElementById('mainTableContainer');
+            if (scrollTop && scrollMain) {
+                setScrollRatio(scrollTop, getScrollRatio(scrollMain));
+            }
+        }
+
+        function setupDualScrollbar() {
+            const scrollTop = document.getElementById('scrollTop');
+            const scrollMain = document.getElementById('mainTableContainer');
+            const scrollTopInner = document.getElementById('scrollTopInner');
+            if (!scrollTop || !scrollMain || !scrollTopInner) return;
+
+            // Set inner width to match the full table width so scrollbar proportions feel right
+            const table = scrollMain.querySelector('table');
+            if (table) scrollTopInner.style.width = table.scrollWidth + 'px';
+
+            // Only bind events once
+            if (_dualScrollBound) return;
+            _dualScrollBound = true;
+
+            // Track which scrollbar the user is interacting with
+            scrollTop.addEventListener('pointerdown', () => { _activeScroller = 'top'; });
+            scrollTop.addEventListener('wheel', () => { _activeScroller = 'top'; });
+            scrollMain.addEventListener('pointerdown', () => { _activeScroller = 'main'; });
+            scrollMain.addEventListener('wheel', () => { _activeScroller = 'main'; });
+            window.addEventListener('pointerup', () => { _activeScroller = null; });
+
+            scrollTop.addEventListener('scroll', () => {
+                if (_activeScroller === 'main') return;
+                const ratio = getScrollRatio(scrollTop);
+                setScrollRatio(scrollMain, ratio);
+            });
+            scrollMain.addEventListener('scroll', () => {
+                if (_activeScroller === 'top') return;
+                const ratio = getScrollRatio(scrollMain);
+                setScrollRatio(scrollTop, ratio);
+            });
         }
 
         async function init() { 
@@ -177,7 +327,7 @@ function toggleTheme() {
 
             initListeners();
             renderUI(); 
-            setTimeout(scrollToCurrentWeek, 500);
+            setTimeout(() => { setupDualScrollbar(); scrollToCurrentWeek(true); }, 300);
         }
 
         async function fetchData() { 
@@ -243,6 +393,12 @@ function toggleTheme() {
             return "rgba(239, 68, 68, 0.35)"; 
         }
 
+        // ── Formatering av celleverdier (0 = blank) ─────────
+        function formatCellValue(v, isUnsure) {
+            if (!v) return '';
+            return String(v) + (isUnsure ? 'u' : '');
+        }
+
         // EXCEL EKSPORT & IMPORT MED ID
         async function exportProsjektliste() {
             document.getElementById('saveStatus').innerText = "Eksporterer prosjektliste...";
@@ -261,7 +417,7 @@ function toggleTheme() {
                     maaneder[maaneder.length - 1].uker.push(t.id);
                 }
             });
-            const tre = maaneder.slice(0, 6); // Satt til 6 måneder
+            const tre = maaneder.slice(0, 6);
 
             const aktiveProsjekter = data.projects.filter(p => !p.arkivert);
 
@@ -270,7 +426,7 @@ function toggleTheme() {
                 .filter(e => valgtAvdeling === 'Alle' || e.avdeling === valgtAvdeling)
                 .map(e => e.id);
             
-            const totalKapasitet = gyldigeAnsatte.length; // Totalt antall hoder
+            const totalKapasitet = gyldigeAnsatte.length;
 
             const buildRows = (prosjekter) => {
                 return prosjekter.map(p => {
@@ -283,7 +439,6 @@ function toggleTheme() {
                         const sumProsent = data.assignments
                             .filter(a => a.prosjekt_id === p.id && m.uker.includes(a.uke) && gyldigeAnsatte.includes(a.ansatt_id))
                             .reduce((sum, a) => sum + (Number(a.prosent) || 0), 0);
-                        
                         const maanedsverk = m.uker.length ? (sumProsent / m.uker.length / 100) : 0;
                         row.push(maanedsverk > 0 ? Number(maanedsverk.toFixed(2)) : '');
                     });
@@ -291,7 +446,6 @@ function toggleTheme() {
                 }).filter(row => row.slice(3).some(val => val !== '')); 
             };
 
-            // Hjelpefunksjon for å lage summeringsrader
             const lagSumRad = (tittel, rader) => {
                 const sumRad = ['', tittel, 'SUM'];
                 tre.forEach((_, idx) => {
@@ -318,14 +472,12 @@ function toggleTheme() {
                 rows.push(lagSumRad('Sum NC', ncRader));
                 rows.push(new Array(header.length).fill(''));
             }
-
             if (nordicRader.length > 0) {
                 rows.push(['NORDIC PROSJEKTER', '', '', ...tre.map(() => '')]);
                 rows.push(...nordicRader);
                 rows.push(lagSumRad('Sum Nordic', nordicRader));
                 rows.push(new Array(header.length).fill(''));
             }
-
             if (ufaktRader.length > 0) {
                 rows.push(['UFAKTURERBARE', '', '', ...tre.map(() => '')]);
                 rows.push(...ufaktRader);
@@ -333,7 +485,6 @@ function toggleTheme() {
                 rows.push(new Array(header.length).fill(''));
             }
 
-            // OPPSUMMERING NEDERST
             const alleRader = [...ncRader, ...nordicRader, ...ufaktRader];
             const totalSumRad = lagSumRad('TOTALT PLANLAGT', alleRader);
             
@@ -371,7 +522,6 @@ function toggleTheme() {
         async function exportToExcel() {
             document.getElementById('saveStatus').innerText = "Eksporterer...";
 
-            // Paginering – samme som fetchData()
             let rows = [];
             let from = 0;
             const pageSize = 1000;
@@ -390,11 +540,9 @@ function toggleTheme() {
 
             const wb = XLSX.utils.book_new();
 
-            // ── Fane 1: Rådata / backup ──────────────────────────────────────
             const wsBackup = XLSX.utils.json_to_sheet(rows);
             XLSX.utils.book_append_sheet(wb, wsBackup, "Backup");
 
-            // ── Fane 2: Menneskevennlig prognose-tabell ──────────────────────
             const uker = data.timeline.map(t => t.id);
             const map = {};
 
@@ -427,7 +575,6 @@ function toggleTheme() {
                     r.avdeling, r.klynge, r.ansattNavn, r.prosjektNavn, 
                     ...uker.map(u => r[u] ?? '')
                 ]));
-                // Sum-rad per ansatt
                 finalRows.push(['', '', ansatt, 'TOTAL', ...uker.map(u =>
                     blokk.reduce((sum, r) => sum + (parseFloat(String(r[u] ?? '').replace('u', '')) || 0), 0) || ''
                 )]);
@@ -493,74 +640,72 @@ function toggleTheme() {
         }
 
         async function importAnsatteFromExcel(event) {
-    if (currentUserRole !== 'superbruker') {
-        return alert("Kun superbrukere kan importere ansatter.");
-    }
-    const file = event.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const arr = new Uint8Array(e.target.result);
-        const wb = XLSX.read(arr, {type: 'array'});
-        const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-
-        if (!json.length) return alert("Filen er tom.");
-
-        // Valider at påkrevde kolonner finnes (case-insensitive)
-        const paakrevd = ['navn'];
-        const headers = Object.keys(json[0]);
-        const headerMap = {};
-        headers.forEach(h => headerMap[h.toLowerCase()] = h);
-        const mangler = paakrevd.filter(k => !headerMap[k]);
-        if (mangler.length) return alert(`Mangler kolonne(r): ${mangler.join(', ')}`);
-
-        // Bygg opp rader – hopp over hvis navn allerede finnes
-        const eksisterende = data.employees.map(e => e.navn.toLowerCase());
-        const nyeAnsatte = [];
-        const duplikater = [];
-
-        json.forEach(row => {
-            const navn = String(row[headerMap['navn']] || '').trim();
-            if (!navn) return;
-            if (eksisterende.includes(navn.toLowerCase())) {
-                duplikater.push(navn);
-                return;
+            if (currentUserRole !== 'superbruker') {
+                return alert("Kun superbrukere kan importere ansatter.");
             }
-            nyeAnsatte.push({
-                navn:      navn,
-                avdeling:  String(row[headerMap['avdeling']] || '').trim() || null,
-                gruppe:    String(row[headerMap['gruppe']]   || '').trim() || null,
-                email:     String(row[headerMap['email']]    || '').trim().toLowerCase() || null,
-                rolle:     ['admin','ansatt','superbruker'].includes(String(row[headerMap['rolle']] || '').toLowerCase()) 
-                               ? String(row[headerMap['rolle']]).toLowerCase() 
-                               : 'ansatt'
-            });
-        });
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                const arr = new Uint8Array(e.target.result);
+                const wb = XLSX.read(arr, {type: 'array'});
+                const json = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
 
-        if (!nyeAnsatte.length) {
-            return alert(`Ingen nye ansatte å importere.\nAllerede i systemet: ${duplikater.join(', ')}`);
+                if (!json.length) return alert("Filen er tom.");
+
+                const paakrevd = ['navn'];
+                const headers = Object.keys(json[0]);
+                const headerMap = {};
+                headers.forEach(h => headerMap[h.toLowerCase()] = h);
+                const mangler = paakrevd.filter(k => !headerMap[k]);
+                if (mangler.length) return alert(`Mangler kolonne(r): ${mangler.join(', ')}`);
+
+                const eksisterende = data.employees.map(e => e.navn.toLowerCase());
+                const nyeAnsatte = [];
+                const duplikater = [];
+
+                json.forEach(row => {
+                    const navn = String(row[headerMap['navn']] || '').trim();
+                    if (!navn) return;
+                    if (eksisterende.includes(navn.toLowerCase())) {
+                        duplikater.push(navn);
+                        return;
+                    }
+                    nyeAnsatte.push({
+                        navn:      navn,
+                        avdeling:  String(row[headerMap['avdeling']] || '').trim() || null,
+                        gruppe:    String(row[headerMap['gruppe']]   || '').trim() || null,
+                        email:     String(row[headerMap['email']]    || '').trim().toLowerCase() || null,
+                        rolle:     ['admin','ansatt','superbruker'].includes(String(row[headerMap['rolle']] || '').toLowerCase()) 
+                                       ? String(row[headerMap['rolle']]).toLowerCase() 
+                                       : 'ansatt'
+                    });
+                });
+
+                if (!nyeAnsatte.length) {
+                    return alert(`Ingen nye ansatte å importere.\nAllerede i systemet: ${duplikater.join(', ')}`);
+                }
+
+                let bekreft = `Importerer ${nyeAnsatte.length} ansatte.`;
+                if (duplikater.length) bekreft += `\n\nHopper over ${duplikater.length} som allerede finnes:\n${duplikater.join(', ')}`;
+                if (!confirm(bekreft)) return;
+
+                document.getElementById('saveStatus').innerText = "Importerer ansatte...";
+
+                const { error } = await db.from('ansatte').insert(nyeAnsatte);
+                if (error) {
+                    alert("Importfeil: " + error.message);
+                    document.getElementById('saveStatus').innerText = "";
+                } else {
+                    alert(`${nyeAnsatte.length} ansatte lagt til!`);
+                    await fetchData();
+                    updateFilterDropdowns();
+                    renderUI();
+                    document.getElementById('saveStatus').innerText = "";
+                }
+            };
+            reader.readAsArrayBuffer(file);
         }
-
-        let bekreft = `Importerer ${nyeAnsatte.length} ansatte.`;
-        if (duplikater.length) bekreft += `\n\nHopper over ${duplikater.length} som allerede finnes:\n${duplikater.join(', ')}`;
-        if (!confirm(bekreft)) return;
-
-        document.getElementById('saveStatus').innerText = "Importerer ansatte...";
-
-        const { error } = await db.from('ansatte').insert(nyeAnsatte);
-        if (error) {
-            alert("Importfeil: " + error.message);
-            document.getElementById('saveStatus').innerText = "";
-        } else {
-            alert(`${nyeAnsatte.length} ansatte lagt til!`);
-            await fetchData();
-            updateFilterDropdowns();
-            renderUI();
-            document.getElementById('saveStatus').innerText = "";
-        }
-    };
-    reader.readAsArrayBuffer(file);
-}
 
         async function save(ansattId, prosjektId, uke, inVal, silent = false) {
             const isUnsure = inVal.toLowerCase().endsWith('u');
@@ -585,19 +730,83 @@ function toggleTheme() {
 
         async function fillMonth(ansattId, prosjektId, ukeId, value) {
             const trimmedValue = String(value || '').trim();
-            if (trimmedValue === '') {
-                return; // do not fill the rest of the month with an empty value
-            }
+            if (trimmedValue === '') return;
             const currentIdx = data.timeline.findIndex(t => t.id === ukeId);
             const currentMonth = data.timeline[currentIdx].month;
             document.getElementById('saveStatus').innerText = "Lagrer måned...";
+
+            _batchUndoActive = true;
+            // Collect undo entries before overwriting
+            const undoEntries = [];
             const promises = [];
             for (let i = currentIdx; i < data.timeline.length; i++) {
                 if (data.timeline[i].month !== currentMonth) break;
-                if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) promises.push(save(ansattId, prosjektId, data.timeline[i].id, trimmedValue, true));
+                if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) {
+                    const wk = data.timeline[i].id;
+                    const existing = data.assignments.find(a => String(a.ansatt_id) === String(ansattId) && String(a.prosjekt_id) === String(prosjektId) && a.uke === wk);
+                    undoEntries.push({ ansattId, prosjektId, uke: wk, oldValue: existing ? existing.prosent : 0, oldUsikker: existing ? existing.er_usikker : false });
+                    promises.push(save(ansattId, prosjektId, wk, trimmedValue, true));
+                }
             }
+            pushUndo(undoEntries);
             await Promise.all(promises);
+            _batchUndoActive = false;
             document.getElementById('saveStatus').innerText = "Lagret";
+            setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
+            renderUI();
+        }
+
+        async function fillQuarter(ansattId, prosjektId, ukeId, value) {
+            const trimmedValue = String(value || '').trim();
+            if (trimmedValue === '') return;
+            const currentIdx = data.timeline.findIndex(t => t.id === ukeId);
+            const startMonth = data.timeline[currentIdx].month;
+            const startMonthIdx = monthNames.indexOf(startMonth);
+            // Fill 3 months from start
+            const quarterMonths = [startMonth, monthNames[(startMonthIdx + 1) % 12], monthNames[(startMonthIdx + 2) % 12]];
+
+            document.getElementById('saveStatus').innerText = "Lagrer kvartal...";
+            _batchUndoActive = true;
+            const undoEntries = [];
+            const promises = [];
+            for (let i = currentIdx; i < data.timeline.length; i++) {
+                if (!quarterMonths.includes(data.timeline[i].month)) break;
+                if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) {
+                    const wk = data.timeline[i].id;
+                    const existing = data.assignments.find(a => String(a.ansatt_id) === String(ansattId) && String(a.prosjekt_id) === String(prosjektId) && a.uke === wk);
+                    undoEntries.push({ ansattId, prosjektId, uke: wk, oldValue: existing ? existing.prosent : 0, oldUsikker: existing ? existing.er_usikker : false });
+                    promises.push(save(ansattId, prosjektId, wk, trimmedValue, true));
+                }
+            }
+            pushUndo(undoEntries);
+            await Promise.all(promises);
+            _batchUndoActive = false;
+            document.getElementById('saveStatus').innerText = "Lagret";
+            setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
+            renderUI();
+        }
+
+        async function clearMonth(ansattId, prosjektId, ukeId) {
+            const currentIdx = data.timeline.findIndex(t => t.id === ukeId);
+            const currentMonth = data.timeline[currentIdx].month;
+            document.getElementById('saveStatus').innerText = "Tømmer måned...";
+
+            _batchUndoActive = true;
+            const undoEntries = [];
+            const promises = [];
+            for (let i = currentIdx; i < data.timeline.length; i++) {
+                if (data.timeline[i].month !== currentMonth) break;
+                if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) {
+                    const wk = data.timeline[i].id;
+                    const existing = data.assignments.find(a => String(a.ansatt_id) === String(ansattId) && String(a.prosjekt_id) === String(prosjektId) && a.uke === wk);
+                    undoEntries.push({ ansattId, prosjektId, uke: wk, oldValue: existing ? existing.prosent : 0, oldUsikker: existing ? existing.er_usikker : false });
+                    promises.push(save(ansattId, prosjektId, wk, '0', true));
+                }
+            }
+            pushUndo(undoEntries);
+            await Promise.all(promises);
+            _batchUndoActive = false;
+            document.getElementById('saveStatus').innerText = "Tømt";
             setTimeout(() => document.getElementById('saveStatus').innerText = "", 800);
             renderUI();
         }
@@ -639,7 +848,6 @@ function toggleTheme() {
                              
                     data.timeline.forEach(t => {
                         const sum = data.assignments.filter(a => String(a.ansatt_id) === String(emp.id) && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0);
-                        // Oppdatert ID her
                         if (view === 'ledig') { const l = 100 - sum; h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':(l===0?'transparent':'inherit')}">${l === 0 ? '' : l + '%'}</td>`; }
                         else { h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getCellColor(sum)}; color:${sum>100?'#f87171':(sum>0?'inherit':'transparent')}">${sum>0?sum+'%':'-'}</td>`; }
                      });
@@ -659,9 +867,9 @@ function toggleTheme() {
                             let ph = `<td class="name-col" style="padding-left:30px;"><div class="name-row-top"><span class="${pDb.er_nc?'nc-tag':(pDb.er_ufakturerbart?'uf-tag':'')}">${pDb.prosjektnummer ? esc(pDb.prosjektnummer) + ' - ' : ''}${esc(pDb.navn)}</span>${rmBtnHtml}</div></td>`;
                             data.timeline.forEach(t => {
                                 const a = data.assignments.find(x => String(x.ansatt_id) === String(emp.id) && String(x.prosjekt_id) === String(pId) && x.uke === t.id);
-                                const v = a ? a.prosent : ''; const isU = a ? a.er_usikker : false; 
-                                if ((t.isPast && t.id !== currentWeekId) || !canEditOwnRow) ph += `<td class="cell-locked">${esc(String(v))}${isU?'u':''}</td>`;
-                                else ph += `<td class="${isU?'cell-unsure':''}" title="Dobbelklikk for å fylle måneden"><input class="cell-input" value="${esc(String(v))}${isU?'u':''}" data-ansatt-id="${esc(emp.id)}" data-prosjekt-id="${esc(pId)}" data-uke="${esc(t.id)}" data-action="cell-input"></td>`;
+                                const v = a ? a.prosent : 0; const isU = a ? a.er_usikker : false; 
+                                if ((t.isPast && t.id !== currentWeekId) || !canEditOwnRow) ph += `<td class="cell-locked">${formatCellValue(v, isU)}</td>`;
+                                else ph += `<td class="${isU?'cell-unsure':''}" title="Høyreklikk for meny"><input class="cell-input" value="${formatCellValue(v, isU)}" data-ansatt-id="${esc(emp.id)}" data-prosjekt-id="${esc(pId)}" data-uke="${esc(t.id)}" data-action="cell-input"></td>`;
                             });
                             ptr.innerHTML = ph; body.appendChild(ptr);
                         });
@@ -682,7 +890,6 @@ function toggleTheme() {
 
                     let h = `<td class="name-col"><div class="name-row-top"><span>${expanded.has(p.id)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer ? esc(p.prosjektnummer)+' ' : ''}${esc(p.navn)} ${p.arkivert?'(Arkivert)':''}</span>${editBtnHtml}</div></td>`;
                     
-                    // Oppdatert ID her
                     data.timeline.forEach(t => { const s = data.assignments.filter(a => String(a.prosjekt_id) === String(p.id) && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); h += `<td id="${safeId('sum_proj', p.id, t.id)}" style="background-color:${getCellColor(s)}; color:${s>0?'inherit':'transparent'}">${s>0?s+'%':'-'}</td>`; });
                     tr.innerHTML = h; body.appendChild(tr);
                     
@@ -701,9 +908,9 @@ function toggleTheme() {
 
                             data.timeline.forEach(t => {
                                 const a = data.assignments.find(x => String(x.ansatt_id) === String(aId) && String(x.prosjekt_id) === String(p.id) && x.uke === t.id);
-                                const v = a ? a.prosent : ''; const isU = a ? a.er_usikker : false;
-                                if ((t.isPast && t.id !== currentWeekId) || !canEditRow) ph += `<td class="cell-locked">${esc(String(v))}${isU?'u':''}</td>`;
-                                else ph += `<td class="${isU?'cell-unsure':''}"><input class="cell-input" value="${esc(String(v))}${isU?'u':''}" data-ansatt-id="${esc(aId)}" data-prosjekt-id="${esc(p.id)}" data-uke="${esc(t.id)}" data-action="cell-input"></td>`;
+                                const v = a ? a.prosent : 0; const isU = a ? a.er_usikker : false;
+                                if ((t.isPast && t.id !== currentWeekId) || !canEditRow) ph += `<td class="cell-locked">${formatCellValue(v, isU)}</td>`;
+                                else ph += `<td class="${isU?'cell-unsure':''}"><input class="cell-input" value="${formatCellValue(v, isU)}" data-ansatt-id="${esc(aId)}" data-prosjekt-id="${esc(p.id)}" data-uke="${esc(t.id)}" data-action="cell-input"></td>`;
                             });
                             ptr.innerHTML = ph; body.appendChild(ptr);
                         });
@@ -712,6 +919,8 @@ function toggleTheme() {
             }
 
             renderTotaler(); updateChart(); updateStats();
+            // Sync dual scrollbar width after render
+            setTimeout(setupDualScrollbar, 0);
         }
 
         function initListeners() {
@@ -729,20 +938,16 @@ function toggleTheme() {
                 else if (action === 'add-proj') openAssignModal(btn.dataset.ansattId);
             });
 
-            const saveTimeouts = {};
-            let visualUpdateTimer = null;
-            const scheduleVisualUpdates = () => {
-                clearTimeout(visualUpdateTimer);
-                visualUpdateTimer = setTimeout(() => {
-                    renderTotaler();
-                    updateChart();
-                    updateStats();
-                }, 150);
-            };
-
-            const handleCellUpdate = (inp, shouldRenderVisuals = true) => {
+            // ── Right-click context menu on cells ───────────
+            container.addEventListener('contextmenu', (e) => {
+                const inp = e.target.closest('input[data-action="cell-input"]');
                 if (!inp) return;
-                console.log('Cell update triggered');
+                e.preventDefault();
+                showContextMenu(e.clientX, e.clientY, inp.dataset.ansattId, inp.dataset.prosjektId, inp.dataset.uke, inp.value);
+            });
+
+            const handleCellUpdate = (inp) => {
+                if (!inp) return;
                 const aId = inp.dataset.ansattId;
                 const pId = inp.dataset.prosjektId;
                 const uke = inp.dataset.uke;
@@ -750,13 +955,14 @@ function toggleTheme() {
                 const isU = inp.value.toLowerCase().endsWith('u');
                 const val = parseFloat(inp.value.replace('u', '')) || 0;
 
-                console.error('handleCellUpdate', { aId, pId, uke, val, isU, value: inp.value });
-
+                // Save undo for single cell edits
                 const ex = data.assignments.find(a =>
                     String(a.ansatt_id) === String(aId) &&
                     String(a.prosjekt_id) === String(pId) &&
                     String(a.uke) === String(uke)
                 );
+                const oldVal = ex ? ex.prosent : 0;
+                const oldU = ex ? ex.er_usikker : false;
 
                 if (ex) {
                     ex.prosent = val;
@@ -772,42 +978,53 @@ function toggleTheme() {
                     });
                 }
 
+                // Update local table sums only - skip chart and stats during typing
                 oppdaterLokalSum(aId, pId, uke);
                 renderTotaler();
-                if (shouldRenderVisuals) {
-                    updateChart();
-                    updateStats();
-                } else {
-                    scheduleVisualUpdates();
-                }
+
+                // Track pending save so it can be flushed on unload
+                pendingSaves[id] = { ansattId: aId, prosjektId: pId, uke, value: inp.value };
 
                 clearTimeout(saveTimeouts[id]);
-                saveTimeouts[id] = setTimeout(async () => { await save(aId, pId, uke, inp.value, true); }, 500);
+                saveTimeouts[id] = setTimeout(async () => {
+                    // Only push undo for individual cell edits, not during batch ops
+                    if (!_batchUndoActive) {
+                        pushUndo([{ ansattId: aId, prosjektId: pId, uke, oldValue: oldVal, oldUsikker: oldU }]);
+                    }
+                    delete pendingSaves[id];
+                    await save(aId, pId, uke, inp.value, true);
+                }, 500);
             };
 
             window.addEventListener('input', (e) => {
-                console.log('Input event fired');
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    handleCellUpdate(e.target, false);
+                    handleCellUpdate(e.target);
                 }
             }, true);
 
             window.addEventListener('change', (e) => {
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    handleCellUpdate(e.target, true);
+                    handleCellUpdate(e.target);
                 }
             }, true);
 
             window.addEventListener('blur', (e) => {
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    handleCellUpdate(e.target, true);
+                    handleCellUpdate(e.target);
                 }
             }, true);
 
             window.addEventListener('keydown', (e) => {
+                // Ctrl+Z / Cmd+Z for undo
+                if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                    // Don't intercept if focused on a regular text input (not cell-input)
+                    if (e.target.tagName === 'INPUT' && e.target.dataset.action !== 'cell-input') return;
+                    e.preventDefault();
+                    performUndo();
+                    return;
+                }
                 if (e.key !== 'Enter') return;
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    console.log('Enter pressed on input');
                     e.target.blur();
                     handleCellUpdate(e.target);
                 }
@@ -832,7 +1049,7 @@ function toggleTheme() {
                 const avg = Math.round(total / (fEmps.length || 1));
                 if (view === 'ledig') { const l = 100 - avg; h += `<td id="${safeId('total', t.id)}" style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':(l===0?'transparent':'inherit')}">${l === 0 ? '' : l + '%'}</td>`; }
                 else h += `<td id="${safeId('total', t.id)}" style="background-color:${getCellColor(avg)}; color:${avg>0?'inherit':'transparent'}">${avg}%</td>`;
-        });
+            });
             foot.innerHTML = h + '</tr>';
         }
 
@@ -911,81 +1128,73 @@ function toggleTheme() {
         }
 
         function oppdaterLokalSum(ansattId, prosjektId, uke) {
-            console.log('Updating sum');
-    const view = document.getElementById('viewFilter').value;
+            const view = document.getElementById('viewFilter').value;
 
-    let targetCell;
-    if (view === 'ansatte' || view === 'ledig') {
-        const row = document.querySelector(`tr.row-summary[data-emp-id="${ansattId}"]`);
-        const weekIndex = data.timeline.findIndex(t => String(t.id) === String(uke));
-        if (row && weekIndex >= 0 && row.cells[weekIndex + 1]) {
-            targetCell = row.cells[weekIndex + 1];
-        } else {
-            targetCell = findIdCell('sum_emp', ansattId, uke);
+            let targetCell;
+            if (view === 'ansatte' || view === 'ledig') {
+                const row = document.querySelector(`tr.row-summary[data-emp-id="${ansattId}"]`);
+                const weekIndex = data.timeline.findIndex(t => String(t.id) === String(uke));
+                if (row && weekIndex >= 0 && row.cells[weekIndex + 1]) {
+                    targetCell = row.cells[weekIndex + 1];
+                } else {
+                    targetCell = findIdCell('sum_emp', ansattId, uke);
+                }
+                if (!targetCell) return;
+
+                const nySum = data.assignments
+                    .filter(a => String(a.ansatt_id) === String(ansattId) && String(a.uke) === String(uke))
+                    .reduce((s, a) => s + (Number(a.prosent) || 0), 0);
+
+                if (view === 'ledig') {
+                    const ledig = 100 - nySum;
+                    targetCell.style.backgroundColor = getLedigColor(ledig);
+                    targetCell.textContent = ledig === 0 ? '' : ledig + '%';
+                    targetCell.style.color = ledig < 0 ? '#f87171' : 'inherit';
+                } else {
+                    targetCell.style.backgroundColor = getCellColor(nySum);
+                    targetCell.textContent = nySum > 0 ? nySum + '%' : '-';
+                    targetCell.style.color = nySum > 100 ? '#f87171' : 'inherit';
+                }
+            } else {
+                const row = document.querySelector(`tr.row-summary[data-proj-id="${prosjektId}"]`);
+                const weekIndex = data.timeline.findIndex(t => String(t.id) === String(uke));
+                if (row && weekIndex >= 0 && row.cells[weekIndex + 1]) {
+                    targetCell = row.cells[weekIndex + 1];
+                } else {
+                    targetCell = findIdCell('sum_proj', prosjektId, uke);
+                }
+                if (!targetCell) return;
+
+                const nySum = data.assignments
+                    .filter(a => String(a.prosjekt_id) === String(prosjektId) && String(a.uke) === String(uke))
+                    .reduce((s, a) => s + (Number(a.prosent) || 0), 0);
+
+                targetCell.style.backgroundColor = getCellColor(nySum);
+                targetCell.textContent = nySum > 0 ? nySum + '%' : '-';
+                targetCell.style.color = nySum > 0 ? 'inherit' : 'transparent';
+            }
+
+            const fEmps = getFilteredEmployees();
+            const totalCell = findIdCell('total', uke);
+            if (totalCell && fEmps.length > 0) {
+                const total = fEmps.reduce((sum, e) => {
+                    return sum + data.assignments
+                        .filter(a => String(a.ansatt_id) === String(e.id) && String(a.uke) === String(uke))
+                        .reduce((s, a) => s + (Number(a.prosent) || 0), 0);
+                }, 0);
+                const avg = Math.round(total / fEmps.length);
+                if (view === 'ledig') {
+                    const l = 100 - avg;
+                    totalCell.style.backgroundColor = getLedigColor(l);
+                    totalCell.textContent = l === 0 ? '' : l + '%';
+                    totalCell.style.color = l < 0 ? '#f87171' : 'inherit';
+                } else {
+                    totalCell.style.backgroundColor = getCellColor(avg);
+                    totalCell.textContent = avg + '%';
+                    totalCell.style.color = avg > 0 ? 'inherit' : 'transparent';
+                }
+            }
         }
-        console.error('oppdaterLokalSum employee', { targetCellId: targetCell?.id, view, ansattId, uke });
-        if (!targetCell) return;
-
-        const nySum = data.assignments
-            .filter(a => String(a.ansatt_id) === String(ansattId) && String(a.uke) === String(uke))
-            .reduce((s, a) => s + (Number(a.prosent) || 0), 0);
-
-        console.log('nySum:', nySum);
-        if (view === 'ledig') {
-            const ledig = 100 - nySum;
-            targetCell.style.backgroundColor = getLedigColor(ledig);
-            targetCell.textContent = ledig === 0 ? '' : ledig + '%';
-            targetCell.style.color = ledig < 0 ? '#f87171' : 'inherit';
-        } else {
-            targetCell.style.backgroundColor = getCellColor(nySum);
-            targetCell.textContent = nySum > 0 ? nySum + '%' : '-';
-            targetCell.style.color = nySum > 100 ? '#f87171' : 'inherit';
-        }
-        console.log('Updated targetCell.textContent to:', targetCell.textContent);
-    } else {
-        const row = document.querySelector(`tr.row-summary[data-proj-id="${prosjektId}"]`);
-        const weekIndex = data.timeline.findIndex(t => String(t.id) === String(uke));
-        if (row && weekIndex >= 0 && row.cells[weekIndex + 1]) {
-            targetCell = row.cells[weekIndex + 1];
-        } else {
-            targetCell = findIdCell('sum_proj', prosjektId, uke);
-        }
-        console.error('oppdaterLokalSum project', { targetCellId: targetCell?.id, view, prosjektId, uke });
-        if (!targetCell) return;
-
-        const nySum = data.assignments
-            .filter(a => String(a.prosjekt_id) === String(prosjektId) && String(a.uke) === String(uke))
-            .reduce((s, a) => s + (Number(a.prosent) || 0), 0);
-
-        console.log('nySum project:', nySum);
-        targetCell.style.backgroundColor = getCellColor(nySum);
-        targetCell.textContent = nySum > 0 ? nySum + '%' : '-';
-        targetCell.style.color = nySum > 0 ? 'inherit' : 'transparent';
-        console.log('Updated targetCell.textContent to:', targetCell.textContent);
-    }
-
-    // Oppdater totalraden i footer
-    const fEmps = getFilteredEmployees();
-    const totalCell = findIdCell('total', uke);
-    if (totalCell && fEmps.length > 0) {
-        const total = fEmps.reduce((sum, e) => {
-            return sum + data.assignments
-                .filter(a => String(a.ansatt_id) === String(e.id) && String(a.uke) === String(uke))
-                .reduce((s, a) => s + (Number(a.prosent) || 0), 0);
-        }, 0);
-        const avg = Math.round(total / fEmps.length);
-        if (view === 'ledig') {
-            const l = 100 - avg;
-            totalCell.style.backgroundColor = getLedigColor(l);
-            totalCell.textContent = l === 0 ? '' : l + '%';
-            totalCell.style.color = l < 0 ? '#f87171' : 'inherit';
-        } else {
-            totalCell.style.backgroundColor = getCellColor(avg);
-            totalCell.textContent = avg + '%';
-            totalCell.style.color = avg > 0 ? 'inherit' : 'transparent';
-        }
-    }
-}
 
         async function saveProject() { 
             const id = document.getElementById('editProjId').value; const nr = document.getElementById('projNo').value.trim(); const navn = document.getElementById('projName').value.trim(); const type = document.querySelector('input[name="projType"]:checked').value; const arkivert = document.getElementById('projArkivert').checked;
@@ -1050,5 +1259,52 @@ function toggleTheme() {
                 l.appendChild(d); 
             }); 
         }
+
+        // ── Flush pending saves on unload ───────────────────
+        // Browsers don't wait for async on unload, so we use fetch with keepalive
+        // to send pending saves as fire-and-forget requests that persist past page close.
+        function flushPendingSaves() {
+            const pending = Object.values(pendingSaves);
+            if (!pending.length) return;
+
+            // Cancel debounce timers so they don't fire after we've already sent
+            Object.keys(saveTimeouts).forEach(k => clearTimeout(saveTimeouts[k]));
+
+            const session = db.auth.session ? db.auth.session() : null;
+            const token = (session && session.access_token) || supabaseKey;
+
+            pending.forEach(p => {
+                const isUnsure = String(p.value).toLowerCase().endsWith('u');
+                const val = parseFloat(String(p.value).replace('u', '')) || 0;
+                const id = `${p.ansattId}_${p.prosjektId}_${p.uke}`;
+                const body = JSON.stringify({
+                    id: id,
+                    ansatt_id: p.ansattId,
+                    prosjekt_id: p.prosjektId,
+                    uke: p.uke,
+                    prosent: val,
+                    er_usikker: isUnsure
+                });
+                try {
+                    fetch(`${supabaseUrl}/rest/v1/bemanning?on_conflict=id`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'apikey': supabaseKey,
+                            'Authorization': `Bearer ${token}`,
+                            'Prefer': 'resolution=merge-duplicates'
+                        },
+                        body: body,
+                        keepalive: true
+                    });
+                } catch (err) {
+                    // Best effort - nothing more we can do during unload
+                    console.error('Flush failed', err);
+                }
+            });
+        }
+
+        window.addEventListener('beforeunload', flushPendingSaves);
+        window.addEventListener('pagehide', flushPendingSaves);
 
         checkUser();
