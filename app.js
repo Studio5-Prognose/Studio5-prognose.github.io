@@ -1030,11 +1030,7 @@ function toggleTheme() {
                 }
             }, true);
 
-            container.addEventListener('dblclick', async (e) => {
-                if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    await fillMonth(e.target.dataset.ansattId, e.target.dataset.prosjektId, e.target.dataset.uke, e.target.value);
-                }
-            });
+
         }
 
         function renderTotaler() {
