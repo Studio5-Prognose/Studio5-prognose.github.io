@@ -168,7 +168,9 @@ function toggleTheme() {
                 if (meg.avdeling) avdFilter.value = meg.avdeling;
             }
 
-            document.getElementById('admin-tools').style.display = currentUserRole === 'admin' ? 'flex' : 'none';
+            document.getElementById('admin-tools').style.display = (currentUserRole === 'admin' || currentUserRole === 'superbruker') ? 'flex' : 'none';
+            document.getElementById('backupRestoreBtn').style.display = currentUserRole === 'superbruker' ? 'block' : 'none';
+            document.getElementById('importAnsatteBtn').style.display = currentUserRole === 'superbruker' ? 'block' : 'none';
             updateFilterDropdowns(false); 
 
             if (meg && meg.gruppe) document.getElementById('klyngeFilter').value = meg.gruppe;
@@ -444,6 +446,9 @@ function toggleTheme() {
         }
 
         async function importFromExcel(event) {
+            if (currentUserRole !== 'superbruker') {
+                return alert("Kun superbrukere kan gjenopprette fra backup.");
+            }
             const file = event.target.files[0];
             if (!file) return;
             const reader = new FileReader();
@@ -488,6 +493,9 @@ function toggleTheme() {
         }
 
         async function importAnsatteFromExcel(event) {
+    if (currentUserRole !== 'superbruker') {
+        return alert("Kun superbrukere kan importere ansatter.");
+    }
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
@@ -523,7 +531,7 @@ function toggleTheme() {
                 avdeling:  String(row[headerMap['avdeling']] || '').trim() || null,
                 gruppe:    String(row[headerMap['gruppe']]   || '').trim() || null,
                 email:     String(row[headerMap['email']]    || '').trim().toLowerCase() || null,
-                rolle:     ['admin','ansatt'].includes(String(row[headerMap['rolle']] || '').toLowerCase()) 
+                rolle:     ['admin','ansatt','superbruker'].includes(String(row[headerMap['rolle']] || '').toLowerCase()) 
                                ? String(row[headerMap['rolle']]).toLowerCase() 
                                : 'ansatt'
             });
