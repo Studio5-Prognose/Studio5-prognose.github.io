@@ -584,13 +584,17 @@ function toggleTheme() {
         }
 
         async function fillMonth(ansattId, prosjektId, ukeId, value) {
+            const trimmedValue = String(value || '').trim();
+            if (trimmedValue === '') {
+                return; // do not fill the rest of the month with an empty value
+            }
             const currentIdx = data.timeline.findIndex(t => t.id === ukeId);
             const currentMonth = data.timeline[currentIdx].month;
             document.getElementById('saveStatus').innerText = "Lagrer måned...";
             const promises = [];
             for (let i = currentIdx; i < data.timeline.length; i++) {
                 if (data.timeline[i].month !== currentMonth) break;
-                if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) promises.push(save(ansattId, prosjektId, data.timeline[i].id, value, true));
+                if (!data.timeline[i].isPast || data.timeline[i].id === currentWeekId) promises.push(save(ansattId, prosjektId, data.timeline[i].id, trimmedValue, true));
             }
             await Promise.all(promises);
             document.getElementById('saveStatus').innerText = "Lagret";
