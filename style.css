@@ -222,3 +222,7 @@ input.cell-input { width: 100%; height: 100%; background: transparent; border: n
     from { opacity: 0; transform: translateX(-50%) translateY(10px); }
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
+th.current-week {
+    background-color: rgba(59, 130, 246, 0.15) !important; /* Subtil blåfarge */
+    border-radius: 4px; /* Valgfritt, for litt mykere kanter */
+}

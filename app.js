@@ -952,8 +952,20 @@ function toggleTheme() {
                 const pId = inp.dataset.prosjektId;
                 const uke = inp.dataset.uke;
                 const id = `${aId}_${pId}_${uke}`;
-                const isU = inp.value.toLowerCase().endsWith('u');
-                const val = parseFloat(inp.value.replace('u', '')) || 0;
+                
+                const valStr = String(inp.value).toLowerCase().trim();
+                const isU = valStr.endsWith('u');
+                const val = parseFloat(valStr.replace('u', '')) || 0;
+
+                // 1. Tving oppdatering av farge/styling på selve ruten umiddelbart
+                const td = inp.closest('td');
+                if (td) {
+                    if (isU) {
+                        td.classList.add('cell-unsure');
+                    } else {
+                        td.classList.remove('cell-unsure');
+                    }
+                }
 
                 // Save undo for single cell edits
                 const ex = data.assignments.find(a =>
@@ -987,7 +999,6 @@ function toggleTheme() {
 
                 clearTimeout(saveTimeouts[id]);
                 saveTimeouts[id] = setTimeout(async () => {
-                    // Only push undo for individual cell edits, not during batch ops
                     if (!_batchUndoActive) {
                         pushUndo([{ ansattId: aId, prosjektId: pId, uke, oldValue: oldVal, oldUsikker: oldU }]);
                     }
@@ -1029,7 +1040,68 @@ function toggleTheme() {
                     handleCellUpdate(e.target);
                 }
             }, true);
+              window.addEventListener('keydown', (e) => {
+            // Ctrl+Z / Cmd+Z for undo
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                // Don't intercept if focused on a regular text input (not cell-input)
+                if (e.target.tagName === 'INPUT' && e.target.dataset.action !== 'cell-input') return;
+                e.preventDefault();
+                performUndo();
+                return;
+            }
+            if (e.key !== 'Enter') return;
+            if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
+                e.target.blur();
+                handleCellUpdate(e.target);
+            }
+        }, true);
 
+            // ---> LEGG INN PILTAST-LOGIKKEN HER <---
+            window.addEventListener('keydown', function(e) {
+                const active = document.activeElement;
+                if (!active || !['INPUT', 'SELECT'].includes(active.tagName) || !active.closest('#tableBody')) return;
+
+                const keys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+                if (!keys.includes(e.key)) return;
+
+                const row = active.closest('tr');
+                const cell = active.closest('td, th');
+                if (!row || !cell) return;
+
+                const cellIndex = Array.from(row.children).indexOf(cell);
+                const rows = Array.from(document.querySelectorAll('#tableBody tr'));
+                const rowIndex = rows.indexOf(row);
+
+                let targetInput;
+
+                if (e.key === 'ArrowRight') {
+                    const inputs = Array.from(row.querySelectorAll('input, select'));
+                    targetInput = inputs[inputs.indexOf(active) + 1];
+                } 
+                else if (e.key === 'ArrowLeft') {
+                    const inputs = Array.from(row.querySelectorAll('input, select'));
+                    targetInput = inputs[inputs.indexOf(active) - 1];
+                } 
+                else if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    const targetRow = rows[rowIndex + 1];
+                    if (targetRow && targetRow.children[cellIndex]) {
+                        targetInput = targetRow.children[cellIndex].querySelector('input, select');
+                    }
+                } 
+                else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    const targetRow = rows[rowIndex - 1];
+                    if (targetRow && targetRow.children[cellIndex]) {
+                        targetInput = targetRow.children[cellIndex].querySelector('input, select');
+                    }
+                }
+
+                if (targetInput) {
+                    targetInput.focus();
+                    if (targetInput.select) targetInput.select();
+                }
+            });                     
 
         }
 
@@ -1102,11 +1174,19 @@ function toggleTheme() {
         function openAssignModal(ansattId) { activeAssigneeId = ansattId; document.getElementById('projectSearch').value = ""; document.getElementById('assignModal').style.display = 'flex'; filterProjects(); }
         
         function openNewProjectModal() { 
-            document.getElementById('modalTitle').innerText="Nytt Prosjekt"; document.getElementById('editProjId').value=""; document.getElementById('projNo').value=""; document.getElementById('projName').value=""; document.getElementById('projArkivert').checked=false; document.getElementById('deleteBtn').style.display="none"; document.getElementById('archiveSection').style.display="none"; document.getElementById('mergeSection').style.display="none"; document.getElementById('projectModal').style.display="flex"; 
+            document.getElementById('modalTitle').innerText="Nytt Prosjekt"; 
+            document.getElementById('editProjId').value=""; document.getElementById('projNo').value=""; 
+            document.getElementById('projName').value=""; document.getElementById('projArkivert').checked=false; 
+            document.getElementById('deleteBtn').style.display="none"; document.getElementById('archiveSection').style.display="none"; 
+            document.getElementById('mergeSection').style.display="none"; document.getElementById('projectModal').style.display="flex"; 
         }
         
         function openEditProjectModal(id, nr, navn, isNC, isUF, isArkivert) { 
-            document.getElementById('modalTitle').innerText="Rediger Prosjekt"; document.getElementById('editProjId').value=id; document.getElementById('projNo').value=nr; document.getElementById('projName').value=navn; document.querySelector(`input[name="projType"][value="${isNC?'nc':(isUF?'uf':'nordic')}"]`).checked=true; document.getElementById('projArkivert').checked = isArkivert; document.getElementById('archiveSection').style.display="block"; document.getElementById('deleteBtn').style.display="block"; 
+            document.getElementById('modalTitle').innerText="Rediger Prosjekt"; 
+            document.getElementById('editProjId').value=id; document.getElementById('projNo').value=nr; 
+            document.getElementById('projName').value=navn; 
+            document.querySelector(`input[name="projType"][value="${isNC?'nc':(isUF?'uf':'nordic')}"]`).checked=true; document.getElementById('projArkivert').checked = isArkivert; 
+            document.getElementById('archiveSection').style.display="block"; document.getElementById('deleteBtn').style.display="block"; 
 
             if (currentUserRole === 'admin' || currentUserRole === 'superbruker') {
                 document.getElementById('mergeSection').style.display="block";
