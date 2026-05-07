@@ -226,3 +226,7 @@ th.current-week {
     background-color: rgba(59, 130, 246, 0.15) !important; /* Subtil blåfarge */
     border-radius: 4px; /* Valgfritt, for litt mykere kanter */
 }
+.cell-input.selected-cell {
+    background-color: rgba(59, 130, 246, 0.2) !important;
+    outline: 1px solid #3b82f6;
+}

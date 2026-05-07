@@ -1025,21 +1025,97 @@ function toggleTheme() {
                 }
             }, true);
 
+            // DRA- OG SHIFT-MARKERING
+            let isDragging = false;
+            let selectedCells = new Set();
+
+            container.addEventListener('mousedown', (e) => {
+                if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
+                    isDragging = true;
+                    if (!e.shiftKey) {
+                        selectedCells.forEach(inp => inp.classList.remove('selected-cell'));
+                        selectedCells.clear();
+                    }
+                    selectedCells.add(e.target);
+                    e.target.classList.add('selected-cell');
+                }
+            });
+
+            container.addEventListener('mouseover', (e) => {
+                if (isDragging && e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
+                    selectedCells.add(e.target);
+                    e.target.classList.add('selected-cell');
+                }
+            });
+
+            window.addEventListener('mouseup', () => { isDragging = false; });
+
+            // OPPDATER ALLE MARKERTE VED ENTER / UNDO
+            // OPPDATER ALLE MARKERTE VED ENTER, ELLER TØM VED DELETE
             window.addEventListener('keydown', (e) => {
-                // Ctrl+Z / Cmd+Z for undo
+                // Ctrl+Z for undo
                 if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-                    // Don't intercept if focused on a regular text input (not cell-input)
                     if (e.target.tagName === 'INPUT' && e.target.dataset.action !== 'cell-input') return;
                     e.preventDefault();
                     performUndo();
                     return;
                 }
-                if (e.key !== 'Enter') return;
+                
                 if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    e.target.blur();
-                    handleCellUpdate(e.target);
+                    const isEnter = e.key === 'Enter';
+                    const isDelete = e.key === 'Delete' || e.key === 'Backspace';
+
+                    if (!isEnter && !isDelete) return;
+
+                    // HVIS ENTER: Kopier verdi til alle valgte
+                    if (isEnter) {
+                        e.target.blur();
+                        
+                        if (selectedCells.has(e.target) && selectedCells.size > 1) {
+                            const val = e.target.value;
+                            _batchUndoActive = true; 
+                            const undoEntries = [];
+
+                            selectedCells.forEach(inp => {
+                                const ex = data.assignments.find(a => String(a.ansatt_id) === String(inp.dataset.ansattId) && String(a.prosjekt_id) === String(inp.dataset.prosjektId) && a.uke === inp.dataset.uke);
+                                undoEntries.push({ ansattId: inp.dataset.ansattId, prosjektId: inp.dataset.prosjektId, uke: inp.dataset.uke, oldValue: ex ? ex.prosent : 0, oldUsikker: ex ? ex.er_usikker : false });
+                                
+                                inp.value = val;
+                                handleCellUpdate(inp);
+                            });
+                            
+                            pushUndo(undoEntries);
+                            _batchUndoActive = false;
+                            
+                            // Fjern markering etter Enter
+                            selectedCells.forEach(inp => inp.classList.remove('selected-cell'));
+                            selectedCells.clear();
+                        } else {
+                            handleCellUpdate(e.target);
+                        }
+                    } 
+                    // HVIS DELETE/BACKSPACE og flere er valgt: Tøm alle
+                    else if (isDelete && selectedCells.has(e.target) && selectedCells.size > 1) {
+                        e.preventDefault(); // Forhindre at den bare sletter ett tegn i aktiv celle
+                        
+                        _batchUndoActive = true; 
+                        const undoEntries = [];
+
+                        selectedCells.forEach(inp => {
+                            const ex = data.assignments.find(a => String(a.ansatt_id) === String(inp.dataset.ansattId) && String(a.prosjekt_id) === String(inp.dataset.prosjektId) && a.uke === inp.dataset.uke);
+                            undoEntries.push({ ansattId: inp.dataset.ansattId, prosjektId: inp.dataset.prosjektId, uke: inp.dataset.uke, oldValue: ex ? ex.prosent : 0, oldUsikker: ex ? ex.er_usikker : false });
+                            
+                            inp.value = ''; // Tøm cellen
+                            handleCellUpdate(inp);
+                        });
+                        
+                        pushUndo(undoEntries);
+                        _batchUndoActive = false;
+                        
+                        // Vi lar cellene stå markert her, slik at du kan skrive inn et nytt tall umiddelbart om du vil
+                    }
                 }
-            }, true);
+            }, true); 
               window.addEventListener('keydown', (e) => {
             // Ctrl+Z / Cmd+Z for undo
             if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
