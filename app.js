@@ -1384,3 +1384,21 @@ function toggleTheme() {
         window.addEventListener('pagehide', flushPendingSaves);
 
         checkUser();
+        // Hent ny data i bakgrunnen hvert 5. minutt
+setInterval(async () => {
+    // Ikke forstyrr hvis brukeren skriver eller har markert celler
+    const isTyping = document.activeElement && document.activeElement.tagName === 'INPUT';
+    const hasSelection = document.querySelectorAll('.selected-cell').length > 0;
+
+    if (!isTyping && !hasSelection) {
+        const status = document.getElementById('saveStatus');
+        if (status) status.innerText = "Synkroniserer...";
+        
+        await fetchData();
+        renderUI();
+        
+        if (status) {
+            status.innerText = "";
+        }
+    }
+}, 5 * 60 * 1000);
