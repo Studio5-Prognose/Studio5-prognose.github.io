@@ -967,7 +967,7 @@ function toggleTheme() {
                     }
                 }
 
-                // Save undo for single cell edits
+                // Save undo for single cell edits***
                 const ex = data.assignments.find(a =>
                     String(a.ansatt_id) === String(aId) &&
                     String(a.prosjekt_id) === String(pId) &&
