@@ -820,6 +820,8 @@ function toggleTheme() {
             document.getElementById('statsSection').style.display = view === 'prosjekter' ? 'grid' : 'none';
             avdelingSelect.style.display = view === 'prosjekter' ? 'none' : 'inline-block';
             klyngeSelect.style.display = (view === 'prosjekter' || avdelingSelect.value === 'Alle' || klyngeSelect.options.length <= 1) ? 'none' : 'inline-block';
+            const prosjektSokEl = document.getElementById('prosjektSok');
+            if (prosjektSokEl) prosjektSokEl.style.display = view === 'prosjekter' ? 'inline-block' : 'none';
 
             const head = document.getElementById('tableHead');
             let yrs = '<th class="name-col header-year"></th>', mos = '<th class="name-col header-month">Navn</th>', wks = '<th class="name-col header-week"></th>';
@@ -882,7 +884,20 @@ function toggleTheme() {
                     }
                 });
             } else {
-                data.projects.forEach(p => {
+                const sok = document.getElementById('prosjektSok') ? document.getElementById('prosjektSok').value.toLowerCase() : '';
+    
+                const sorterteProsjekter = [...data.projects]
+                .filter(p => !sok || p.navn.toLowerCase().includes(sok) || (p.prosjektnummer && p.prosjektnummer.toLowerCase().includes(sok)))
+                 .sort((a, b) => {
+                    // 1. Fakturerbar (Nordic/NC) før Ufakturerbar
+                    if (a.er_ufakturerbart !== b.er_ufakturerbart) return a.er_ufakturerbart ? 1 : -1;
+                    // 2. Nordic før NC
+                    if (a.er_nc !== b.er_nc) return a.er_nc ? 1 : -1;
+                    // 3. Alfabetisk
+                    return a.navn.localeCompare(b.navn, 'no');
+        });
+
+    sorterteProsjekter.forEach(p => {
                     const tr = document.createElement('tr'); tr.className='row-summary'; tr.dataset.projId = p.id;
                     tr.onclick = () => { expanded.has(p.id) ? expanded.delete(p.id) : expanded.add(p.id); renderUI(); };
                     
@@ -1026,114 +1041,131 @@ function toggleTheme() {
             }, true);
 
             // DRA- OG SHIFT-MARKERING
+            // Bruker pointer events (fungerer i Firefox, Chrome, Safari, mobil)
+            // og preventDefault på mousedown for å hindre at Firefox starter
+            // tekstmarkering inni input-felter, som blokkerer mouseover-events.
             let isDragging = false;
+            let dragStartCell = null;
             let selectedCells = new Set();
 
+            const clearSelection = () => {
+                selectedCells.forEach(inp => inp.classList.remove('selected-cell'));
+                selectedCells.clear();
+            };
+
+            const addCellToSelection = (inp) => {
+                if (!selectedCells.has(inp)) {
+                    selectedCells.add(inp);
+                    inp.classList.add('selected-cell');
+                }
+            };
+
             container.addEventListener('mousedown', (e) => {
-                if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    isDragging = true;
-                    if (!e.shiftKey) {
-                        selectedCells.forEach(inp => inp.classList.remove('selected-cell'));
-                        selectedCells.clear();
+                const inp = e.target.closest('input[data-action="cell-input"]');
+                if (!inp) return;
+
+                // Hvis Shift: utvid markering (ikke start drag)
+                if (e.shiftKey) {
+                    e.preventDefault();
+                    addCellToSelection(inp);
+                    return;
+                }
+
+                // Vanlig klikk: start ny markering, men ikke blokker normal input-fokus
+                isDragging = true;
+                dragStartCell = inp;
+                clearSelection();
+                addCellToSelection(inp);
+                // Ikke preventDefault her - vi vil at brukeren skal kunne fokusere på cellen
+            });
+
+            // mousemove med buttons-sjekk er mer pålitelig på tvers av nettlesere
+            // enn mouseover for dra-deteksjon, særlig i Firefox med input-elementer
+            container.addEventListener('mousemove', (e) => {
+                if (!isDragging || e.buttons !== 1) return;
+                const inp = e.target.closest('input[data-action="cell-input"]');
+                if (!inp) return;
+                // Når vi faktisk drar over flere celler, da blokkerer vi tekstmarkering
+                if (inp !== dragStartCell || selectedCells.size > 1) {
+                    e.preventDefault();
+                    // Fjern fokus fra start-cellen så vi ikke får tekstmarkering inni inputen
+                    if (document.activeElement && document.activeElement.tagName === 'INPUT') {
+                        document.activeElement.blur();
                     }
-                    selectedCells.add(e.target);
-                    e.target.classList.add('selected-cell');
+                }
+                addCellToSelection(inp);
+            });
+
+            window.addEventListener('mouseup', () => {
+                isDragging = false;
+                dragStartCell = null;
+            });
+
+            // Fjern markering ved klikk utenfor tabellen
+            document.addEventListener('mousedown', (e) => {
+                if (!e.target.closest('#mainTableContainer') && selectedCells.size > 0) {
+                    clearSelection();
                 }
             });
 
-            container.addEventListener('mouseover', (e) => {
-                if (isDragging && e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    selectedCells.add(e.target);
-                    e.target.classList.add('selected-cell');
-                }
-            });
-
-            window.addEventListener('mouseup', () => { isDragging = false; });
-
-            // OPPDATER ALLE MARKERTE VED ENTER / UNDO
-            // OPPDATER ALLE MARKERTE VED ENTER, ELLER TØM VED DELETE
+            // Samlet keydown-listener for Ctrl+Z, Enter, Delete/Backspace og piltaster
             window.addEventListener('keydown', (e) => {
-                // Ctrl+Z for undo
+                // Ctrl+Z / Cmd+Z for undo
                 if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
                     if (e.target.tagName === 'INPUT' && e.target.dataset.action !== 'cell-input') return;
                     e.preventDefault();
                     performUndo();
                     return;
                 }
-                
-                if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                    const isEnter = e.key === 'Enter';
-                    const isDelete = e.key === 'Delete' || e.key === 'Backspace';
 
-                    if (!isEnter && !isDelete) return;
+                // Resten gjelder bare cell-input
+                if (!(e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input')) {
+                    // Piltast-navigering for andre input/select i tabellen
+                    handleArrowNavigation(e);
+                    return;
+                }
 
-                    // HVIS ENTER: Kopier verdi til alle valgte
-                    if (isEnter) {
-                        e.target.blur();
-                        
-                        if (selectedCells.has(e.target) && selectedCells.size > 1) {
-                            const val = e.target.value;
-                            _batchUndoActive = true; 
-                            const undoEntries = [];
+                const isEnter = e.key === 'Enter';
+                const isDelete = e.key === 'Delete' || (e.key === 'Backspace' && selectedCells.size > 1 && selectedCells.has(e.target));
 
-                            selectedCells.forEach(inp => {
-                                const ex = data.assignments.find(a => String(a.ansatt_id) === String(inp.dataset.ansattId) && String(a.prosjekt_id) === String(inp.dataset.prosjektId) && a.uke === inp.dataset.uke);
-                                undoEntries.push({ ansattId: inp.dataset.ansattId, prosjektId: inp.dataset.prosjektId, uke: inp.dataset.uke, oldValue: ex ? ex.prosent : 0, oldUsikker: ex ? ex.er_usikker : false });
-                                
-                                inp.value = val;
-                                handleCellUpdate(inp);
-                            });
-                            
-                            pushUndo(undoEntries);
-                            _batchUndoActive = false;
-                            
-                            // Fjern markering etter Enter
-                            selectedCells.forEach(inp => inp.classList.remove('selected-cell'));
-                            selectedCells.clear();
-                        } else {
-                            handleCellUpdate(e.target);
-                        }
-                    } 
-                    // HVIS DELETE/BACKSPACE og flere er valgt: Tøm alle
-                    else if (isDelete && selectedCells.has(e.target) && selectedCells.size > 1) {
-                        e.preventDefault(); // Forhindre at den bare sletter ett tegn i aktiv celle
-                        
-                        _batchUndoActive = true; 
+                if (isEnter) {
+                    e.target.blur();
+                    if (selectedCells.has(e.target) && selectedCells.size > 1) {
+                        const val = e.target.value;
+                        _batchUndoActive = true;
                         const undoEntries = [];
-
                         selectedCells.forEach(inp => {
                             const ex = data.assignments.find(a => String(a.ansatt_id) === String(inp.dataset.ansattId) && String(a.prosjekt_id) === String(inp.dataset.prosjektId) && a.uke === inp.dataset.uke);
                             undoEntries.push({ ansattId: inp.dataset.ansattId, prosjektId: inp.dataset.prosjektId, uke: inp.dataset.uke, oldValue: ex ? ex.prosent : 0, oldUsikker: ex ? ex.er_usikker : false });
-                            
-                            inp.value = ''; // Tøm cellen
+                            inp.value = val;
                             handleCellUpdate(inp);
                         });
-                        
                         pushUndo(undoEntries);
                         _batchUndoActive = false;
-                        
-                        // Vi lar cellene stå markert her, slik at du kan skrive inn et nytt tall umiddelbart om du vil
+                        clearSelection();
+                    } else {
+                        handleCellUpdate(e.target);
                     }
+                } else if (isDelete) {
+                    e.preventDefault();
+                    _batchUndoActive = true;
+                    const undoEntries = [];
+                    selectedCells.forEach(inp => {
+                        const ex = data.assignments.find(a => String(a.ansatt_id) === String(inp.dataset.ansattId) && String(a.prosjekt_id) === String(inp.dataset.prosjektId) && a.uke === inp.dataset.uke);
+                        undoEntries.push({ ansattId: inp.dataset.ansattId, prosjektId: inp.dataset.prosjektId, uke: inp.dataset.uke, oldValue: ex ? ex.prosent : 0, oldUsikker: ex ? ex.er_usikker : false });
+                        inp.value = '';
+                        handleCellUpdate(inp);
+                    });
+                    pushUndo(undoEntries);
+                    _batchUndoActive = false;
+                } else {
+                    // Piltast-navigering
+                    handleArrowNavigation(e);
                 }
-            }, true); 
-              window.addEventListener('keydown', (e) => {
-            // Ctrl+Z / Cmd+Z for undo
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-                // Don't intercept if focused on a regular text input (not cell-input)
-                if (e.target.tagName === 'INPUT' && e.target.dataset.action !== 'cell-input') return;
-                e.preventDefault();
-                performUndo();
-                return;
-            }
-            if (e.key !== 'Enter') return;
-            if (e.target.tagName === 'INPUT' && e.target.dataset.action === 'cell-input') {
-                e.target.blur();
-                handleCellUpdate(e.target);
-            }
-        }, true);
+            }, true);
 
-            // ---> LEGG INN PILTAST-LOGIKKEN HER <---
-            window.addEventListener('keydown', function(e) {
+            // Piltast-navigering, hentet ut som egen funksjon
+            function handleArrowNavigation(e) {
                 const active = document.activeElement;
                 if (!active || !['INPUT', 'SELECT'].includes(active.tagName) || !active.closest('#tableBody')) return;
 
@@ -1153,19 +1185,16 @@ function toggleTheme() {
                 if (e.key === 'ArrowRight') {
                     const inputs = Array.from(row.querySelectorAll('input, select'));
                     targetInput = inputs[inputs.indexOf(active) + 1];
-                } 
-                else if (e.key === 'ArrowLeft') {
+                } else if (e.key === 'ArrowLeft') {
                     const inputs = Array.from(row.querySelectorAll('input, select'));
                     targetInput = inputs[inputs.indexOf(active) - 1];
-                } 
-                else if (e.key === 'ArrowDown') {
+                } else if (e.key === 'ArrowDown') {
                     e.preventDefault();
                     const targetRow = rows[rowIndex + 1];
                     if (targetRow && targetRow.children[cellIndex]) {
                         targetInput = targetRow.children[cellIndex].querySelector('input, select');
                     }
-                } 
-                else if (e.key === 'ArrowUp') {
+                } else if (e.key === 'ArrowUp') {
                     e.preventDefault();
                     const targetRow = rows[rowIndex - 1];
                     if (targetRow && targetRow.children[cellIndex]) {
@@ -1177,8 +1206,7 @@ function toggleTheme() {
                     targetInput.focus();
                     if (targetInput.select) targetInput.select();
                 }
-            });                     
-
+            }
         }
 
         function renderTotaler() {
@@ -1363,26 +1391,76 @@ function toggleTheme() {
         }
 
         async function executeMerge() {
-            const oldId = document.getElementById('editProjId').value; const newId = document.getElementById('mergeTargetProject').value;
+            const oldId = document.getElementById('editProjId').value;
+            const newId = document.getElementById('mergeTargetProject').value;
             if (!newId) return alert("Velg et prosjekt.");
             if (!confirm("Sikker? Sletter dette og flytter timer til valgt prosjekt. Kan ikke angres.")) return;
             
             document.getElementById('saveStatus').innerText = "Slår sammen...";
+
+            // Build list of rows to upsert into the target project
             const toUpsert = [];
-            data.assignments.filter(a => String(a.prosjekt_id) === String(oldId)).forEach(oldA => {
-                const existing = data.assignments.filter(a => String(a.prosjekt_id) === String(newId)).find(nA => String(nA.ansatt_id) === String(oldA.ansatt_id) && nA.uke === oldA.uke);
-                if (existing) toUpsert.push({ ...existing, prosent: existing.prosent + oldA.prosent, er_usikker: existing.er_usikker || oldA.er_usikker });
-                else toUpsert.push({ ...oldA, prosjekt_id: newId, id: `${oldA.ansatt_id}_${newId}_${oldA.uke}` });
+            const oldAssignments = data.assignments.filter(a => String(a.prosjekt_id) === String(oldId));
+            const newAssignments = data.assignments.filter(a => String(a.prosjekt_id) === String(newId));
+
+            oldAssignments.forEach(oldA => {
+                const existing = newAssignments.find(nA =>
+                    String(nA.ansatt_id) === String(oldA.ansatt_id) && nA.uke === oldA.uke
+                );
+                if (existing) {
+                    // Merge: sum percentages, OR the unsure flag
+                    toUpsert.push({
+                        id: existing.id,
+                        ansatt_id: existing.ansatt_id,
+                        prosjekt_id: newId,
+                        uke: existing.uke,
+                        prosent: (Number(existing.prosent) || 0) + (Number(oldA.prosent) || 0),
+                        er_usikker: !!(existing.er_usikker || oldA.er_usikker)
+                    });
+                } else {
+                    // Move: create new row under target project
+                    toUpsert.push({
+                        id: `${oldA.ansatt_id}_${newId}_${oldA.uke}`,
+                        ansatt_id: oldA.ansatt_id,
+                        prosjekt_id: newId,
+                        uke: oldA.uke,
+                        prosent: Number(oldA.prosent) || 0,
+                        er_usikker: !!oldA.er_usikker
+                    });
+                }
             });
 
+            // 1. Upsert merged/moved rows
             if (toUpsert.length > 0) {
-                for (let i = 0; i < toUpsert.length; i += 1000) await db.from('bemanning').upsert(toUpsert.slice(i, i + 1000));
-                await db.from('bemanning').delete().eq('prosjekt_id', oldId);
+                for (let i = 0; i < toUpsert.length; i += 1000) {
+                    const chunk = toUpsert.slice(i, i + 1000);
+                    const { error: upErr } = await db.from('bemanning').upsert(chunk, { onConflict: 'id' });
+                    if (upErr) {
+                        document.getElementById('saveStatus').innerText = "";
+                        return alert("Feil under flytting av timer: " + upErr.message + "\n\nIngen endringer er gjort.");
+                    }
+                }
             }
-            await db.from('prosjekter').delete().eq('id', oldId);
-            
-            document.getElementById('saveStatus').innerText = "Ferdig!"; setTimeout(() => document.getElementById('saveStatus').innerText = "", 1500);
-            await fetchData(); renderUI(); closeModals(); 
+
+            // 2. Delete remaining rows from the old project
+            const { error: delAssignErr } = await db.from('bemanning').delete().eq('prosjekt_id', oldId);
+            if (delAssignErr) {
+                document.getElementById('saveStatus').innerText = "";
+                return alert("Feil under sletting av gamle timer: " + delAssignErr.message + "\n\nTimer er flyttet, men gammelt prosjekt er ikke ryddet opp.");
+            }
+
+            // 3. Delete the old project itself
+            const { error: delProjErr } = await db.from('prosjekter').delete().eq('id', oldId);
+            if (delProjErr) {
+                document.getElementById('saveStatus').innerText = "";
+                return alert("Feil under sletting av prosjekt: " + delProjErr.message);
+            }
+
+            document.getElementById('saveStatus').innerText = "Ferdig!";
+            setTimeout(() => document.getElementById('saveStatus').innerText = "", 1500);
+            await fetchData();
+            renderUI();
+            closeModals(); 
         }
 
         async function deleteProject() { if(confirm("Slette prosjektet?")) { await db.from('prosjekter').delete().eq('id', document.getElementById('editProjId').value); await fetchData(); renderUI(); closeModals(); } }
@@ -1460,21 +1538,22 @@ function toggleTheme() {
         window.addEventListener('pagehide', flushPendingSaves);
 
         checkUser();
-        // Hent ny data i bakgrunnen hvert 5. minutt
-setInterval(async () => {
-    // Ikke forstyrr hvis brukeren skriver eller har markert celler
-    const isTyping = document.activeElement && document.activeElement.tagName === 'INPUT';
-    const hasSelection = document.querySelectorAll('.selected-cell').length > 0;
 
-    if (!isTyping && !hasSelection) {
-        const status = document.getElementById('saveStatus');
-        if (status) status.innerText = "Synkroniserer...";
-        
-        await fetchData();
-        renderUI();
-        
-        if (status) {
-            status.innerText = "";
-        }
-    }
-}, 5 * 60 * 1000);
+        // Hent ny data i bakgrunnen hvert 5. minutt
+        setInterval(async () => {
+            // Ikke forstyrr hvis brukeren skriver eller har markert celler
+            const isTyping = document.activeElement && document.activeElement.tagName === 'INPUT';
+            const hasSelection = document.querySelectorAll('.selected-cell').length > 0;
+
+            if (!isTyping && !hasSelection) {
+                const status = document.getElementById('saveStatus');
+                if (status) status.innerText = "Synkroniserer...";
+                
+                await fetchData();
+                renderUI();
+                
+                if (status) {
+                    status.innerText = "";
+                }
+            }
+        }, 5 * 60 * 1000);
