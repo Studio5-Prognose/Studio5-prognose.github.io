@@ -858,7 +858,18 @@ function toggleTheme() {
                     if (expanded.has(emp.id)) {
                         const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
                         const sjekkUker = data.timeline.slice(Math.max(0, currentIdx - 6)).map(t => t.id);
-                        const alleProsjekter = [...new Set(data.assignments.filter(a => String(a.ansatt_id) === String(emp.id)).map(a => a.prosjekt_id))];
+                        const alleProsjekter = [...new Set(data.assignments.filter(a => String(a.ansatt_id) === String(emp.id)).map(a => a.prosjekt_id))]
+                        .sort((a, b) => {
+                            const pA = data.projects.find(p => String(p.id) === String(a));
+                            const pB = data.projects.find(p => String(p.id) === String(b));
+                            if (!pA || !pB) return 0;
+                            
+                            // Sender ufakturerbare prosjekter til bunnen
+                            if (pA.er_ufakturerbart !== pB.er_ufakturerbart) return pA.er_ufakturerbart ? 1 : -1;
+                            
+                            // Sorterer resten alfabetisk
+                            return pA.navn.localeCompare(pB.navn, 'no');
+                        });
                         
                         alleProsjekter.filter(pId => data.assignments.some(a => String(a.ansatt_id) === String(emp.id) && String(a.prosjekt_id) === String(pId) && sjekkUker.includes(a.uke) && a.prosent > 0) || nyligLagtTil.has(`${emp.id}_${pId}`)).forEach(pId => {
                             const pDb = data.projects.find(p => String(p.id) === String(pId));
