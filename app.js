@@ -1044,6 +1044,7 @@ function toggleTheme() {
             // Bruker pointer events (fungerer i Firefox, Chrome, Safari, mobil)
             // og preventDefault på mousedown for å hindre at Firefox starter
             // tekstmarkering inni input-felter, som blokkerer mouseover-events.
+            // DRA- OG SHIFT-MARKERING (Oppdatert for Firefox-støtte)
             let isDragging = false;
             let dragStartCell = null;
             let selectedCells = new Set();
@@ -1064,35 +1065,37 @@ function toggleTheme() {
                 const inp = e.target.closest('input[data-action="cell-input"]');
                 if (!inp) return;
 
-                // Hvis Shift: utvid markering (ikke start drag)
+                // Hvis Shift: utvid markering (ikke start ny drag)
                 if (e.shiftKey) {
                     e.preventDefault();
                     addCellToSelection(inp);
                     return;
                 }
 
-                // Vanlig klikk: start ny markering, men ikke blokker normal input-fokus
                 isDragging = true;
                 dragStartCell = inp;
                 clearSelection();
                 addCellToSelection(inp);
-                // Ikke preventDefault her - vi vil at brukeren skal kunne fokusere på cellen
+
+                // FIREFOX FIX: Stopper Firefox fra å starte standard tekst-markering 
+                // som "stjeler" musen og blokkerer mouseover når man drar.
+                e.preventDefault(); 
+                
+                // Fordi vi stoppet klikket, mister ruten evnen til å få skrive-fokus automatisk.
+                // Derfor tvinger vi skrivemarkøren inn i ruten manuelt, slik at du 
+                // fortsatt bare kan klikke og skrive tall direkte!
+                inp.focus(); 
             });
 
-            // mousemove med buttons-sjekk er mer pålitelig på tvers av nettlesere
-            // enn mouseover for dra-deteksjon, særlig i Firefox med input-elementer
-            container.addEventListener('mousemove', (e) => {
+            // Bruker 'mouseover' i stedet for 'mousemove'. Det er mye mer stabilt 
+            // for å fange opp at vi krysser grensene mellom <td>-elementer.
+            container.addEventListener('mouseover', (e) => {
+                // Sjekker at vi faktisk drar, og at venstre museknapp (1) holdes inne
                 if (!isDragging || e.buttons !== 1) return;
+                
                 const inp = e.target.closest('input[data-action="cell-input"]');
                 if (!inp) return;
-                // Når vi faktisk drar over flere celler, da blokkerer vi tekstmarkering
-                if (inp !== dragStartCell || selectedCells.size > 1) {
-                    e.preventDefault();
-                    // Fjern fokus fra start-cellen så vi ikke får tekstmarkering inni inputen
-                    if (document.activeElement && document.activeElement.tagName === 'INPUT') {
-                        document.activeElement.blur();
-                    }
-                }
+                
                 addCellToSelection(inp);
             });
 
