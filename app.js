@@ -49,7 +49,13 @@ function toggleTheme() {
         let currentUserEmail = "";
         let currentUserId = "";
         let currentUserRole = "ansatt";
-
+        let searchTimer;
+        function debounceSearch() {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => {
+        renderUI();
+    }, 300); // Venter 300 millisekunder etter siste tastetrykk
+}
         // ── Undo-stack ──────────────────────────────────────
         const undoStack = [];
         const MAX_UNDO = 50;
@@ -1096,6 +1102,7 @@ function toggleTheme() {
                 // Derfor tvinger vi skrivemarkøren inn i ruten manuelt, slik at du 
                 // fortsatt bare kan klikke og skrive tall direkte!
                 inp.focus(); 
+                inp.select();
             });
 
             // Bruker 'mouseover' i stedet for 'mousemove'. Det er mye mer stabilt 

@@ -39,7 +39,7 @@
         </div>
 
         <div class="toolbar">
-            <input type="text" id="prosjektSok" placeholder="Søk på navn eller nr..." oninput="renderUI()" style="display: none;">
+            <input type="text" id="prosjektSok" placeholder="Søk på navn eller nr..." oninput="debounceSearch()" style="display: none;">
             <select id="viewFilter" onchange="renderUI()">
                 <option value="ansatte">Vis: Ansatte</option>
                 <option value="ledig">Vis: Ledig kapasitet</option>

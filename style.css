@@ -99,10 +99,14 @@ thead th.name-col { z-index: 40; }
 .name-row-top { display: flex; align-items: center; gap: 8px; width: 100%; }
 .name-sub { font-size: 10px; color: var(--text-dim); margin-left: 18px; margin-top: 2px; font-weight: normal; }
 
-.current-week { border-left: 2px solid var(--accent) !important; border-right: 2px solid var(--accent) !important; background: rgba(59, 130, 246, 0.05); }
 .header-year { background: var(--th-year); font-size: 14px; font-weight: 900; height: 35px; }
 .header-month { background: var(--th-month); font-size: 12px; font-weight: bold; height: 30px; color: var(--accent); text-transform: uppercase; }
-.header-week { background: var(--th-week); font-size: 10px; color: var(--text-dim); height: 30px; }
+.header-week { 
+    background-color: var(--th-week) !important; /* Tvinger solid bakgrunn på alle uker */
+    font-size: 10px; 
+    color: var(--text-dim); 
+    height: 30px; 
+}
 
 .row-summary { cursor: pointer; background: var(--tr-sum); font-weight: 600; }
 .row-project { background: var(--tr-proj); font-size: 12px; }
@@ -223,8 +227,10 @@ input.cell-input { width: 100%; height: 100%; background: transparent; border: n
     to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 th.current-week {
-    background-color: rgba(59, 130, 246, 0.15) !important; /* Subtil blåfarge */
-    border-radius: 4px; /* Valgfritt, for litt mykere kanter */
+    background: linear-gradient(rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.15)), var(--th-week) !important;
+    border-radius: 4px; 
+    /* Tegner en 2px blå ramme på innsiden av cellen som aldri scroller vekk */
+    box-shadow: inset 0 0 0 2px var(--accent) !important; 
 }
 .cell-input.selected-cell {
     background-color: rgba(59, 130, 246, 0.2) !important;
