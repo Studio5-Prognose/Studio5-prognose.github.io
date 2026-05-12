@@ -364,14 +364,21 @@ function toggleTheme() {
             const currentKly = klyFilter.value;
 
             if (resetAvdelinger) {
-                const avdelinger = [...new Set(data.employees.map(e => e.avdeling).filter(Boolean))].sort();
+                // Henter avdelinger fra både ansatte og prosjekter
+                const alleAvdelinger = [...data.employees.map(e => e.avdeling), ...data.projects.map(p => p.avdeling)];
+                const avdelinger = [...new Set(alleAvdelinger.filter(Boolean))].sort();
                 avdFilter.innerHTML = '<option value="Alle">Alle Avdelinger</option>' + avdelinger.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
                 avdFilter.value = currentAvd || 'Alle';
             }
 
             const activeAvd = avdFilter.value;
-            const relevantEmployees = activeAvd === 'Alle' ? data.employees : data.employees.filter(e => e.avdeling === activeAvd);
-            const klynger = [...new Set(relevantEmployees.map(e => e.gruppe).filter(Boolean))].sort();
+            
+            // Henter klynger basert på valgt avdeling (fra både ansatte og prosjekter)
+            const relEmp = activeAvd === 'Alle' ? data.employees : data.employees.filter(e => e.avdeling === activeAvd);
+            const relProj = activeAvd === 'Alle' ? data.projects : data.projects.filter(p => p.avdeling === activeAvd);
+            
+            const alleKlynger = [...relEmp.map(e => e.gruppe), ...relProj.map(p => p.gruppe)];
+            const klynger = [...new Set(alleKlynger.filter(Boolean))].sort();
             
             klyFilter.innerHTML = '<option value="Alle">Alle Klynger</option>' + klynger.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
             
