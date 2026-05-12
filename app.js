@@ -824,8 +824,11 @@ function toggleTheme() {
 
             document.getElementById('chartSection').style.display = (view === 'ansatte' || view === 'ledig') ? 'block' : 'none';
             document.getElementById('statsSection').style.display = view === 'prosjekter' ? 'grid' : 'none';
-            avdelingSelect.style.display = view === 'prosjekter' ? 'none' : 'inline-block';
-            klyngeSelect.style.display = (view === 'prosjekter' || avdelingSelect.value === 'Alle' || klyngeSelect.options.length <= 1) ? 'none' : 'inline-block';
+            
+            // OPPDATERT: Alltid synlig avdelingsfilter
+            avdelingSelect.style.display = 'inline-block';
+            klyngeSelect.style.display = (avdelingSelect.value === 'Alle' || klyngeSelect.options.length <= 1) ? 'none' : 'inline-block';
+            
             const prosjektSokEl = document.getElementById('prosjektSok');
             if (prosjektSokEl) prosjektSokEl.style.display = view === 'prosjekter' ? 'inline-block' : 'none';
 
@@ -856,8 +859,9 @@ function toggleTheme() {
                              
                     data.timeline.forEach(t => {
                         const sum = data.assignments.filter(a => String(a.ansatt_id) === String(emp.id) && a.uke === t.id).reduce((s, a) => s + Number(a.prosent), 0);
-                        if (view === 'ledig') { const l = 100 - sum; h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getLedigColor(l)}; color:${l<0?'#f87171':(l===0?'transparent':'inherit')}">${l === 0 ? '' : l + '%'}</td>`; }
-                        else { h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getCellColor(sum)}; color:${sum>100?'#f87171':(sum>0?'inherit':'transparent')}">${sum>0?sum+'%':'-'}</td>`; }
+                        if (view === 'ledig') { const l = 100 - sum; h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getLedigColor(l)}; 
+                        color:${l<0?'#f87171':(l===0?'transparent':'inherit')}">${l === 0 ? '' : l + '%'}</td>`; }
+                        else { h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getCellColor(sum)}; color:${sum>100?'inherit':(sum>0?'inherit':'transparent')}">${sum>0?sum+'%':'-'}</td>`; }
                      });
                     tr.innerHTML = h; body.appendChild(tr);
 
@@ -901,24 +905,30 @@ function toggleTheme() {
                     }
                 });
             } else {
+                // OPPDATERT: Logikk for filtrering av prosjekter etter avdeling/klynge
+                const valgtAvdeling = document.getElementById('avdelingFilter').value;
+                const valgtKlynge = document.getElementById('klyngeFilter').value;
                 const sok = document.getElementById('prosjektSok') ? document.getElementById('prosjektSok').value.toLowerCase() : '';
     
                 const sorterteProsjekter = [...data.projects]
-                .filter(p => !sok || p.navn.toLowerCase().includes(sok) || (p.prosjektnummer && p.prosjektnummer.toLowerCase().includes(sok)))
-                 .sort((a, b) => {
-                    // 1. Fakturerbar (Nordic/NC) før Ufakturerbar
-                    if (a.er_ufakturerbart !== b.er_ufakturerbart) return a.er_ufakturerbart ? 1 : -1;
-                    // 2. Nordic før NC
-                    if (a.er_nc !== b.er_nc) return a.er_nc ? 1 : -1;
-                    // 3. Alfabetisk
-                    return a.navn.localeCompare(b.navn, 'no');
-        });
+                    .filter(p => (valgtAvdeling === 'Alle' || p.avdeling === valgtAvdeling))
+                    .filter(p => (valgtKlynge === 'Alle' || p.gruppe === valgtKlynge))
+                    .filter(p => !sok || p.navn.toLowerCase().includes(sok) || (p.prosjektnummer && p.prosjektnummer.toLowerCase().includes(sok)))
+                    .sort((a, b) => {
+                        // 1. Fakturerbar (Nordic/NC) før Ufakturerbar
+                        if (a.er_ufakturerbart !== b.er_ufakturerbart) return a.er_ufakturerbart ? 1 : -1;
+                        // 2. Nordic før NC
+                        if (a.er_nc !== b.er_nc) return a.er_nc ? 1 : -1;
+                        // 3. Alfabetisk
+                        return a.navn.localeCompare(b.navn, 'no');
+                });
 
-    sorterteProsjekter.forEach(p => {
+            sorterteProsjekter.forEach(p => {
                     const tr = document.createElement('tr'); tr.className='row-summary'; tr.dataset.projId = p.id;
                     tr.onclick = () => { expanded.has(p.id) ? expanded.delete(p.id) : expanded.add(p.id); renderUI(); };
                     
-                    const editBtnHtml = (currentUserRole === 'admin' || currentUserRole === 'superbruker') ? `<button class="edit-btn" data-proj-id="${esc(p.id)}" data-proj-nr="${esc(p.prosjektnummer)}" data-proj-navn="${esc(p.navn)}" data-proj-nc="${p.er_nc}" data-proj-uf="${p.er_ufakturerbart}" data-proj-ark="${p.arkivert}" data-action="edit-proj">✎</button>` : '';
+                    // OPPDATERT: Send med avdeling og gruppe i dataset
+                    const editBtnHtml = (currentUserRole === 'admin' || currentUserRole === 'superbruker') ? `<button class="edit-btn" data-proj-id="${esc(p.id)}" data-proj-nr="${esc(p.prosjektnummer)}" data-proj-navn="${esc(p.navn)}" data-proj-nc="${p.er_nc}" data-proj-uf="${p.er_ufakturerbart}" data-proj-ark="${p.arkivert}" data-proj-avd="${esc(p.avdeling)}" data-proj-kly="${esc(p.gruppe)}" data-action="edit-proj">✎</button>` : '';
 
                     let h = `<td class="name-col"><div class="name-row-top"><span>${expanded.has(p.id)?'▼':'▶'}</span> <span class="${p.er_nc?'nc-tag':(p.er_ufakturerbart?'uf-tag':'')}">${p.prosjektnummer ? esc(p.prosjektnummer)+' ' : ''}${esc(p.navn)} ${p.arkivert?'(Arkivert)':''}</span>${editBtnHtml}</div></td>`;
                     
@@ -965,7 +975,8 @@ function toggleTheme() {
                 const action = btn.dataset.action;
 
                 if (action === 'edit-emp') openEditEmployeeModal(btn.dataset.empId, btn.dataset.empNavn, btn.dataset.empAvd, btn.dataset.empKly, btn.dataset.empEpost, btn.dataset.empRole);
-                else if (action === 'edit-proj') openEditProjectModal(btn.dataset.projId, btn.dataset.projNr, btn.dataset.projNavn, btn.dataset.projNc === 'true', btn.dataset.projUf === 'true', btn.dataset.projArk === 'true');
+                // OPPDATERT: Inkluderer avdeling og klynge fra knappens datasett
+                else if (action === 'edit-proj') openEditProjectModal(btn.dataset.projId, btn.dataset.projNr, btn.dataset.projNavn, btn.dataset.projNc === 'true', btn.dataset.projUf === 'true', btn.dataset.projArk === 'true', btn.dataset.projAvd, btn.dataset.projKly);
                 else if (action === 'remove-proj') await removeProjectFromEmployee(btn.dataset.ansattId, btn.dataset.prosjektId);
                 else if (action === 'add-proj') openAssignModal(btn.dataset.ansattId);
             });
@@ -1298,18 +1309,24 @@ function toggleTheme() {
 
         function openAssignModal(ansattId) { activeAssigneeId = ansattId; document.getElementById('projectSearch').value = ""; document.getElementById('assignModal').style.display = 'flex'; filterProjects(); }
         
+        // OPPDATERT: Tøm feltene i Nytt Prosjekt-modal
         function openNewProjectModal() { 
             document.getElementById('modalTitle').innerText="Nytt Prosjekt"; 
             document.getElementById('editProjId').value=""; document.getElementById('projNo').value=""; 
             document.getElementById('projName').value=""; document.getElementById('projArkivert').checked=false; 
+            if(document.getElementById('projAvdeling')) document.getElementById('projAvdeling').value="";
+            if(document.getElementById('projKlynge')) document.getElementById('projKlynge').value="";
             document.getElementById('deleteBtn').style.display="none"; document.getElementById('archiveSection').style.display="none"; 
             document.getElementById('mergeSection').style.display="none"; document.getElementById('projectModal').style.display="flex"; 
         }
         
-        function openEditProjectModal(id, nr, navn, isNC, isUF, isArkivert) { 
+        // OPPDATERT: Fyll feltene i Rediger Prosjekt-modal
+        function openEditProjectModal(id, nr, navn, isNC, isUF, isArkivert, avdeling, gruppe) { 
             document.getElementById('modalTitle').innerText="Rediger Prosjekt"; 
             document.getElementById('editProjId').value=id; document.getElementById('projNo').value=nr; 
             document.getElementById('projName').value=navn; 
+            if(document.getElementById('projAvdeling')) document.getElementById('projAvdeling').value = avdeling && avdeling !== 'undefined' ? avdeling : '';
+            if(document.getElementById('projKlynge')) document.getElementById('projKlynge').value = gruppe && gruppe !== 'undefined' ? gruppe : '';
             document.querySelector(`input[name="projType"][value="${isNC?'nc':(isUF?'uf':'nordic')}"]`).checked=true; document.getElementById('projArkivert').checked = isArkivert; 
             document.getElementById('archiveSection').style.display="block"; document.getElementById('deleteBtn').style.display="block"; 
 
@@ -1397,16 +1414,38 @@ function toggleTheme() {
             }
         }
 
+        // OPPDATERT: Les og send avdeling/klynge til databasen
         async function saveProject() { 
-            const id = document.getElementById('editProjId').value; const nr = document.getElementById('projNo').value.trim(); const navn = document.getElementById('projName').value.trim(); const type = document.querySelector('input[name="projType"]:checked').value; const arkivert = document.getElementById('projArkivert').checked;
+            const id = document.getElementById('editProjId').value; 
+            const nr = document.getElementById('projNo').value.trim(); 
+            const navn = document.getElementById('projName').value.trim(); 
+            const type = document.querySelector('input[name="projType"]:checked').value; 
+            const arkivert = document.getElementById('projArkivert').checked;
+            
+            const avdEl = document.getElementById('projAvdeling');
+            const klyEl = document.getElementById('projKlynge');
+            const avdeling = avdEl ? avdEl.value.trim() : '';
+            const gruppe = klyEl ? klyEl.value.trim() : '';
+
             if(!navn) return; 
 
-            if (id) { await db.from('prosjekter').update({prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf', arkivert:arkivert}).eq('id', id); } 
-            else {
+            const payload = {
+                prosjektnummer: nr, 
+                navn: navn, 
+                avdeling: avdeling || null,
+                gruppe: gruppe || null,
+                er_nc: type === 'nc', 
+                er_ufakturerbart: type === 'uf', 
+                arkivert: arkivert
+            };
+
+            if (id) { 
+                await db.from('prosjekter').update(payload).eq('id', id); 
+            } else {
                 const checkNavn = navn.toLowerCase().replace(/\s+/g, '');
                 const lignende = data.projects.find(p => (nr && p.prosjektnummer === nr) || p.navn.toLowerCase().replace(/\s+/g, '') === checkNavn);
                 if (lignende && !confirm(`Advarsel: Lignende navn ("${lignende.navn}") finnes. Fortsett?`)) return; 
-                await db.from('prosjekter').insert([{prosjektnummer:nr, navn:navn, er_nc:type==='nc', er_ufakturerbart:type==='uf', arkivert:arkivert}]); 
+                await db.from('prosjekter').insert([payload]); 
             }
             await fetchData(); renderUI(); closeModals(); 
         }
