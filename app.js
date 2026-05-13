@@ -358,13 +358,13 @@ function toggleTheme() {
         }
 
         function updateFilterDropdowns(resetAvdelinger = true) {
+            const view = document.getElementById('viewFilter').value;
             const avdFilter = document.getElementById('avdelingFilter');
             const klyFilter = document.getElementById('klyngeFilter');
             const currentAvd = avdFilter.value;
             const currentKly = klyFilter.value;
 
             if (resetAvdelinger) {
-                // Henter avdelinger fra både ansatte og prosjekter
                 const alleAvdelinger = [...data.employees.map(e => e.avdeling), ...data.projects.map(p => p.avdeling)];
                 const avdelinger = [...new Set(alleAvdelinger.filter(Boolean))].sort();
                 avdFilter.innerHTML = '<option value="Alle">Alle Avdelinger</option>' + avdelinger.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
@@ -372,12 +372,17 @@ function toggleTheme() {
             }
 
             const activeAvd = avdFilter.value;
+            let alleKlynger = [];
             
-            // Henter klynger basert på valgt avdeling (fra både ansatte og prosjekter)
-            const relEmp = activeAvd === 'Alle' ? data.employees : data.employees.filter(e => e.avdeling === activeAvd);
-            const relProj = activeAvd === 'Alle' ? data.projects : data.projects.filter(p => p.avdeling === activeAvd);
+            // NYTT: Sjekk hvilken fane vi er på
+            if (view === 'prosjekter') {
+                const relProj = activeAvd === 'Alle' ? data.projects : data.projects.filter(p => p.avdeling === activeAvd);
+                alleKlynger = relProj.map(p => p.gruppe);
+            } else {
+                const relEmp = activeAvd === 'Alle' ? data.employees : data.employees.filter(e => e.avdeling === activeAvd);
+                alleKlynger = relEmp.map(e => e.gruppe);
+            }
             
-            const alleKlynger = [...relEmp.map(e => e.gruppe), ...relProj.map(p => p.gruppe)];
             const klynger = [...new Set(alleKlynger.filter(Boolean))].sort();
             
             klyFilter.innerHTML = '<option value="Alle">Alle Klynger</option>' + klynger.map(k => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
@@ -825,6 +830,7 @@ function toggleTheme() {
         }
 
         function renderUI() {
+            updateFilterDropdowns(false);
             const view = document.getElementById('viewFilter').value;
             const avdelingSelect = document.getElementById('avdelingFilter');
             const klyngeSelect = document.getElementById('klyngeFilter');
@@ -973,7 +979,13 @@ function toggleTheme() {
         }
 
         function initListeners() {
+            
+            // NYTT: Oppdater dropdowns automatisk når du bytter visning eller avdeling
+            document.getElementById('viewFilter').addEventListener('change', () => updateFilterDropdowns(false));
+            document.getElementById('avdelingFilter').addEventListener('change', () => updateFilterDropdowns(false));
+
             const container = document.getElementById('mainTableContainer');
+            // ... resten av initListeners koden din under her
 
             container.addEventListener('click', async (e) => {
                 const btn = e.target.closest('button[data-action]');
