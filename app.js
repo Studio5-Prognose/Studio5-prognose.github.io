@@ -829,7 +829,7 @@ function toggleTheme() {
             const avdelingSelect = document.getElementById('avdelingFilter');
             const klyngeSelect = document.getElementById('klyngeFilter');
 
-            document.getElementById('chartSection').style.display = (view === 'ansatte' || view === 'ledig') ? 'block' : 'none';
+            document.getElementById('chartSection').style.display = 'block'; // Viser alltid graf-seksjonen
             document.getElementById('statsSection').style.display = view === 'prosjekter' ? 'grid' : 'none';
             
             // OPPDATERT: Alltid synlig avdelingsfilter
@@ -1266,8 +1266,6 @@ function toggleTheme() {
 
         function updateChart() {
             const view = document.getElementById('viewFilter').value;
-            const fEmps = getFilteredEmployees();
-            const n = fEmps.length || 1;
             const isLight = document.documentElement.classList.contains('light-mode');
             const tickColor = isLight ? '#6b7280' : '#a1a1aa';
             
@@ -1277,17 +1275,103 @@ function toggleTheme() {
             
             const datasets = [];
             const labels = chartTimeline.map(t => 'U'+t.week);
-            const totalUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => String(a.ansatt_id) === String(e.id) && a.uke === t.id && !a.er_usikker).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
-            const unsureUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => String(a.ansatt_id) === String(e.id) && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
+            let yMax = undefined; 
+            let isStacked = false;
 
-            if (view === 'ledig') {
-                datasets.push({ label: 'Garantert ledig', data: totalUtil.map(v => 100 - v), borderColor: '#3b82f6', fill: false, tension: 0.3, pointRadius: 0 });
-                datasets.push({ label: 'Ledig (inkl. usikre)', data: unsureUtil.map(v => 100 - v), borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3, pointRadius: 0 });
+            if (view === 'prosjekter') {
+                isStacked = true;
+                const fakturerbareProsjekter = data.projects.filter(p => !p.er_ufakturerbart);
+                const prosjektAvdelinger = [...new Set(fakturerbareProsjekter.map(p => p.avdeling).filter(Boolean))].sort();
+                const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+                // 1. Avdelinger (Fakturerbart) som stablede lag
+                prosjektAvdelinger.forEach((avd, idx) => {
+                    const projsInAvd = fakturerbareProsjekter.filter(p => p.avdeling === avd).map(p => String(p.id));
+                    if (projsInAvd.length === 0) return;
+
+                    const dataPoints = chartTimeline.map(t => {
+                        const sum = data.assignments
+                            .filter(a => projsInAvd.includes(String(a.prosjekt_id)) && a.uke === t.id)
+                            .reduce((acc, a) => acc + Number(a.prosent), 0);
+                        return Number((sum / 100).toFixed(1)); // Deler på 100 for Månedsverk
+                    });
+
+                    if (dataPoints.some(v => v > 0)) {
+                        datasets.push({
+                            label: avd,
+                            data: dataPoints,
+                            borderColor: colors[idx % colors.length],
+                            backgroundColor: colors[idx % colors.length] + '80', // 50% opacity for fylt farge
+                            fill: true,
+                            tension: 0.1,
+                            borderWidth: 1,
+                            pointRadius: 0
+                        });
+                    }
+                });
+
+                // Viser også fakturerbare prosjekter Uten avdeling
+                const projsUtenAvd = fakturerbareProsjekter.filter(p => !p.avdeling).map(p => String(p.id));
+                if (projsUtenAvd.length > 0) {
+                    const dataPoints = chartTimeline.map(t => {
+                        const sum = data.assignments
+                            .filter(a => projsUtenAvd.includes(String(a.prosjekt_id)) && a.uke === t.id)
+                            .reduce((acc, a) => acc + Number(a.prosent), 0);
+                        return Number((sum / 100).toFixed(1));
+                    });
+                    if (dataPoints.some(v => v > 0)) {
+                        datasets.push({ label: 'Fakturerbar (Uten avd)', 
+                            data: dataPoints, 
+                            borderColor: '#a1a1aa', 
+                            backgroundColor: '#a1a1aa80', 
+                            fill: true, 
+                            tension: 0.1, 
+                            borderWidth: 1,
+                            pointRadius: 0 });
+                    }
+                }
+
+                // 2. Fravær / Internt / Ufakturerbart på toppen av stabelen
+                const ufaktProsjekter = data.projects.filter(p => p.er_ufakturerbart).map(p => String(p.id));
+                if (ufaktProsjekter.length > 0) {
+                    const dataPoints = chartTimeline.map(t => {
+                        const sum = data.assignments
+                            .filter(a => ufaktProsjekter.includes(String(a.prosjekt_id)) && a.uke === t.id)
+                            .reduce((acc, a) => acc + Number(a.prosent), 0);
+                        return Number((sum / 100).toFixed(1)); 
+                    });
+                    
+                    if (dataPoints.some(v => v > 0)) {
+                        datasets.push({ 
+                            label: 'Fravær / Internt', 
+                            data: dataPoints, 
+                            borderColor: isLight ? '#9ca3af' : '#6b7280', 
+                            backgroundColor: isLight ? '#e5e7eb' : '#374151', 
+                            fill: true, 
+                            tension: 0.1, 
+                            borderWidth: 1,
+                            pointRadius: 0 
+                        });
+                    }
+                }
             } else {
-                const faktUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => { const p = data.projects.find(x => String(x.id) === String(a.prosjekt_id)); return String(a.ansatt_id) === String(e.id) && a.uke === t.id && p && !p.er_ufakturerbart && !a.er_usikker; }).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
-                datasets.push({ label: 'Sikker Total', data: totalUtil, borderColor: '#3b82f6', fill: false, tension: 0.3, pointRadius: 0 });
-                datasets.push({ label: 'Fakturerbar', data: faktUtil, borderColor: isLight ? '#1f2937' : '#fff', borderDash: [5, 5], fill: false, tension: 0.3, pointRadius: 0 });
-                datasets.push({ label: 'Inkl. Usikker', data: unsureUtil, borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3, pointRadius: 0 });
+                // LOGIKK FOR ANSATTE OG LEDIG (Uendret)
+                const fEmps = getFilteredEmployees();
+                const n = fEmps.length || 1;
+                yMax = view === 'ledig' ? 100 : 120; 
+                
+                const totalUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => String(a.ansatt_id) === String(e.id) && a.uke === t.id && !a.er_usikker).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
+                const unsureUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => String(a.ansatt_id) === String(e.id) && a.uke === t.id).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
+
+                if (view === 'ledig') {
+                    datasets.push({ label: 'Garantert ledig', data: totalUtil.map(v => 100 - v), borderColor: '#3b82f6', fill: false, tension: 0.3, pointRadius: 0 });
+                    datasets.push({ label: 'Ledig (inkl. usikre)', data: unsureUtil.map(v => 100 - v), borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3, pointRadius: 0 });
+                } else {
+                    const faktUtil = chartTimeline.map(t => { let s = 0; fEmps.forEach(e => { s += data.assignments.filter(a => { const p = data.projects.find(x => String(x.id) === String(a.prosjekt_id)); return String(a.ansatt_id) === String(e.id) && a.uke === t.id && p && !p.er_ufakturerbart && !a.er_usikker; }).reduce((sum, a) => sum + Number(a.prosent), 0); }); return Math.round(s/n); });
+                    datasets.push({ label: 'Sikker Total', data: totalUtil, borderColor: '#3b82f6', fill: false, tension: 0.3, pointRadius: 0 });
+                    datasets.push({ label: 'Fakturerbar', data: faktUtil, borderColor: isLight ? '#1f2937' : '#fff', borderDash: [5, 5], fill: false, tension: 0.3, pointRadius: 0 });
+                    datasets.push({ label: 'Inkl. Usikker', data: unsureUtil, borderColor: '#fbbf24', borderDash: [2, 2], fill: false, tension: 0.3, pointRadius: 0 });
+                }
             }
 
             const annotations = {};
@@ -1303,7 +1387,27 @@ function toggleTheme() {
 
             const ctx = document.getElementById('utilizationChart').getContext('2d');
             if (chartInstance) chartInstance.destroy();
-            chartInstance = new Chart(ctx, { type: 'line', data: { labels, datasets }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: view === 'ledig' ? 100 : 120, ticks: { color: tickColor } }, x: { ticks: { color: tickColor } } }, plugins: { annotation: { annotations }, legend: { labels: { color: tickColor } } } } });
+            
+            const scaleOptions = { 
+                y: { beginAtZero: true, stacked: isStacked, ticks: { color: tickColor } }, 
+                x: { stacked: isStacked, ticks: { color: tickColor } } 
+            };
+            if (yMax !== undefined) scaleOptions.y.max = yMax;
+
+            chartInstance = new Chart(ctx, { 
+                type: 'line', 
+                data: { labels, datasets }, 
+                options: { 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    scales: scaleOptions, 
+                    plugins: { 
+                        annotation: { annotations }, 
+                        legend: { labels: { color: tickColor } },
+                        tooltip: { mode: isStacked ? 'index' : 'nearest', intersect: false } // Gjør at du ser alle lagene samtidig når du hovrer i stacked mode
+                    } 
+                } 
+            });
         }
 
         function updateStats() {
