@@ -1399,6 +1399,36 @@ function updateChart() {
                 datasets.push({ label: 'Fravær / Internt', data: dataPoints, borderColor: isLight ? '#9ca3af' : '#6b7280', backgroundColor: isLight ? '#e5e7eb' : '#374151', fill: true, tension: 0.1, borderWidth: 1, pointRadius: 0 });
             }
         }
+    } else if (view === 'fravær') {
+        // NY LOGIKK FOR FRAVÆRSGRAFEN
+        const fEmps = getFilteredEmployees();
+        const n = fEmps.length || 1;
+        yMax = 100; // Maks 100% på fraværsgrafen
+
+        const fraværProj = data.projects.find(p => p.navn.toLowerCase().includes('fravær') || p.navn.toLowerCase().includes('ferie'));
+        const fraværId = fraværProj ? String(fraværProj.id) : null;
+
+        const fravaerUtil = chartTimeline.map(t => {
+            let s = 0;
+            if (fraværId) {
+                fEmps.forEach(e => {
+                    const a = idx.exact.get(`${e.id}|${fraværId}|${t.id}`);
+                    if (a) s += Number(a.prosent);
+                });
+            }
+            return Math.round(s / n);
+        });
+
+        datasets.push({
+            label: 'Snitt Fravær (%)',
+            data: fravaerUtil,
+            borderColor: '#3b82f6', // Blå linje
+            backgroundColor: 'rgba(59, 130, 246, 0.2)', // Lyseblått fyll under linjen
+            fill: true,
+            tension: 0.1,
+            pointRadius: 0
+        });
+
     } else {
         const fEmps = getFilteredEmployees();
         const n = fEmps.length || 1;
