@@ -475,7 +475,7 @@ async function exportProsjektliste() {
             maaneder[maaneder.length - 1].uker.push(t.id);
         }
     });
-    const tre = maaneder.slice(0, 6);
+    const tre = maaneder.slice(0, 12);
     const aktiveProsjekter = data.projects.filter(p => !p.arkivert);
 
     const valgtAvdeling = document.getElementById('avdelingFilter').value;
