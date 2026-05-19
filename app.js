@@ -452,6 +452,12 @@ function getLedigColor(v) {
     if (v <= 50) return "rgba(234, 179, 8, 0.35)";
     return "rgba(239, 68, 68, 0.35)";
 }
+function getFravaerColor(v) {
+    if (!v || v <= 0) return "transparent";
+    // Skalerer gjennomsiktigheten fra lys blå (10%) til sterkere blå (100%)
+    const alpha = Math.min(0.65, Math.max(0.15, (v / 100) * 0.65));
+    return `rgba(59, 130, 246, ${alpha})`;
+}
 
 function formatCellValue(v, isUnsure) {
     if (!v) return '';
@@ -877,32 +883,63 @@ function renderUI() {
     const body = document.getElementById('tableBody');
     body.innerHTML = '';
 
-    if (view === 'ansatte' || view === 'ledig') {
+    if (view === 'ansatte' || view === 'ledig' || view === 'fravær') {
+        const fraværProj = data.projects.find(p => p.navn.toLowerCase().includes('fravær') || p.navn.toLowerCase().includes('ferie'));
+        const fraværId = fraværProj ? String(fraværProj.id) : null;
+
         getFilteredEmployees().forEach(emp => {
             const tr = document.createElement('tr');
-            tr.className = 'row-summary';
+            tr.className = view === 'fravær' ? 'row-project' : 'row-summary';
             tr.dataset.empId = emp.id;
-            tr.onclick = (e) => { if (!e.target.closest('button')) { expanded.has(emp.id) ? expanded.delete(emp.id) : expanded.add(emp.id); renderUI(); } };
+            
+            if (view !== 'fravær') {
+                tr.onclick = (e) => { if (!e.target.closest('button')) { expanded.has(emp.id) ? expanded.delete(emp.id) : expanded.add(emp.id); renderUI(); } };
+            }
 
             const orgTekst = [emp.avdeling, emp.gruppe].filter(Boolean).join(' / ') || 'Ingen avdeling';
             const canEditOwnRow = (currentUserRole === 'admin' || currentUserRole === 'superbruker') || emp.id === currentUserId;
             const editBtnHtml = (currentUserRole === 'admin' || currentUserRole === 'superbruker') ? `<button class="edit-btn" data-emp-id="${esc(emp.id)}" data-emp-navn="${esc(emp.navn)}" data-emp-avd="${esc(emp.avdeling)}" data-emp-kly="${esc(emp.gruppe)}" data-emp-epost="${esc(emp.email)}" data-emp-role="${esc(emp.rolle)}" data-action="edit-emp">✎</button>` : '';
 
-            let h = `<td class="name-col"><div class="name-content"><div class="name-row-top"><span>${expanded.has(emp.id) ? '▼' : '▶'}</span> ${esc(emp.navn)} ${editBtnHtml}</div><div class="name-sub">${esc(orgTekst)}</div></div></td>`;
+            let h = '';
+            if (view === 'fravær') {
+                h = `<td class="name-col"><div class="name-content"><div class="name-row-top">${esc(emp.navn)} ${editBtnHtml}</div><div class="name-sub">${esc(orgTekst)}</div></div></td>`;
+            } else {
+                h = `<td class="name-col"><div class="name-content"><div class="name-row-top"><span>${expanded.has(emp.id) ? '▼' : '▶'}</span> ${esc(emp.navn)} ${editBtnHtml}</div><div class="name-sub">${esc(orgTekst)}</div></div></td>`;
+            }
 
             data.timeline.forEach(t => {
-                const sum = idx.empSum.get(`${emp.id}|${t.id}`) || 0;
-                if (view === 'ledig') {
-                    const l = 100 - sum;
-                    h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getLedigColor(l)}; color:${l < 0 ? '#f87171' : (l === 0 ? 'transparent' : 'inherit')}">${l === 0 ? '' : l + '%'}</td>`;
+                if (view === 'fravær') {
+                    if (!fraværId) {
+                        h += `<td class="cell-locked" title="Fant ikke prosjekt med navn ferie eller fravær">-</td>`;
+                    } else {
+                        const a = idx.exact.get(`${emp.id}|${fraværId}|${t.id}`);
+                        const v = a ? a.prosent : 0; 
+                        const isU = a ? a.er_usikker : false;
+                        
+                        // Henter gradient-farge basert på prosent
+                        const bgColor = getFravaerColor(v);
+                        const bgStyle = v > 0 ? `background-color: ${bgColor}; color: #1e3a8a;` : '';
+                        
+                        if ((t.isPast && t.id !== currentWeekId) || !canEditOwnRow) {
+                            h += `<td class="cell-locked" style="${bgStyle}">${formatCellValue(v, isU)}</td>`;
+                        } else {
+                            h += `<td class="${isU ? 'cell-unsure' : ''}" style="${bgStyle}" title="Høyreklikk for meny"><input class="cell-input" style="${bgStyle}" value="${formatCellValue(v, isU)}" data-ansatt-id="${esc(emp.id)}" data-prosjekt-id="${esc(fraværId)}" data-uke="${esc(t.id)}" data-action="cell-input"></td>`;
+                        }
+                    }
                 } else {
-                    h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getCellColor(sum)}; color:${sum > 100 ? 'inherit' : (sum > 0 ? 'inherit' : 'transparent')}">${sum > 0 ? sum + '%' : '-'}</td>`;
+                    const sum = idx.empSum.get(`${emp.id}|${t.id}`) || 0;
+                    if (view === 'ledig') {
+                        const l = 100 - sum;
+                        h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getLedigColor(l)}; color:${l < 0 ? '#f87171' : (l === 0 ? 'transparent' : 'inherit')}">${l === 0 ? '' : l + '%'}</td>`;
+                    } else {
+                        h += `<td id="${safeId('sum_emp', emp.id, t.id)}" style="background-color:${getCellColor(sum)}; color:${sum > 100 ? 'inherit' : (sum > 0 ? 'inherit' : 'transparent')}">${sum > 0 ? sum + '%' : '-'}</td>`;
+                    }
                 }
             });
             tr.innerHTML = h;
             body.appendChild(tr);
 
-            if (expanded.has(emp.id)) {
+            if (view !== 'fravær' && expanded.has(emp.id)) {
                 const currentIdx = data.timeline.findIndex(t => t.id === currentWeekId);
                 const sjekkUker = data.timeline.slice(Math.max(0, currentIdx - 6)).map(t => t.id);
                 const sjekkSet = new Set(sjekkUker);
@@ -1263,14 +1300,39 @@ function renderTotaler() {
 
     const idx = buildAssignmentIndex();
     const fEmps = getFilteredEmployees();
-    let h = `<tr class="row-total"><td class="name-col">${view === 'ledig' ? 'SNITT LEDIG' : 'TOTAL UTNYTTELSE'}</td>`;
+    
+    let tittel = 'TOTAL UTNYTTELSE';
+    if (view === 'ledig') tittel = 'SNITT LEDIG';
+    if (view === 'fravær') tittel = 'SNITT FRAVÆR';
+
+    let h = `<tr class="row-total"><td class="name-col">${tittel}</td>`;
+    
+    const fraværProj = data.projects.find(p => p.navn.toLowerCase().includes('fravær') || p.navn.toLowerCase().includes('ferie'));
+    const fraværId = fraværProj ? String(fraværProj.id) : null;
+
     data.timeline.forEach(t => {
         let total = 0;
-        fEmps.forEach(e => { total += idx.empSum.get(`${e.id}|${t.id}`) || 0; });
+        fEmps.forEach(e => { 
+            if (view === 'fravær') {
+                if (fraværId) {
+                    const a = idx.exact.get(`${e.id}|${fraværId}|${t.id}`);
+                    if (a) total += Number(a.prosent);
+                }
+            } else {
+                total += idx.empSum.get(`${e.id}|${t.id}`) || 0; 
+            }
+        });
+        
         const avg = Math.round(total / (fEmps.length || 1));
-        if (view === 'ledig') {
+        
+       if (view === 'ledig') {
             const l = 100 - avg;
             h += `<td id="${safeId('total', t.id)}" style="background-color:${getLedigColor(l)}; color:${l < 0 ? '#f87171' : (l === 0 ? 'transparent' : 'inherit')}">${l === 0 ? '' : l + '%'}</td>`;
+        } else if (view === 'fravær') {
+            // Gradient på snittet i bunnraden
+            const bg = getFravaerColor(avg);
+            const fg = avg > 0 ? '#1e3a8a' : 'transparent';
+            h += `<td id="${safeId('total', t.id)}" style="background-color:${bg}; color:${fg}">${avg > 0 ? avg + '%' : '-'}</td>`;
         } else {
             h += `<td id="${safeId('total', t.id)}" style="background-color:${getCellColor(avg)}; color:${avg > 0 ? 'inherit' : 'transparent'}">${avg}%</td>`;
         }
