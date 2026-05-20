@@ -66,7 +66,10 @@
             <div id="saveStatus" style="margin-left: auto; color: #4ade80; font-size: 12px;"></div>
         </div>
 
-        <div id="chartSection" class="chart-container"><canvas id="utilizationChart"></canvas></div>
+        <div style="display:flex; align-items:center; justify-content:flex-end; margin-bottom:4px;">
+    <button onclick="toggleChart()" id="chartToggleBtn" style="font-size:11px; padding:4px 10px; background:transparent; border:1px solid var(--border); color:var(--text-dim);">▲ Skjul graf</button>
+</div>
+<div id="chartSection" class="chart-container"><canvas id="utilizationChart"></canvas></div>
 
         <div id="statsSection" class="stats-grid" style="display:none;">
             <div class="stat-card"><div id="statNordicCount" style="font-size:22px; font-weight:800;">0</div><div style="font-size:11px; color:var(--text-dim);">NORDIC PROSJEKTER</div></div>
@@ -142,6 +145,15 @@
         </div>
     </div>
 
-<script src="app.js"></script>
+<script src="js/config.js"></script>
+<script src="js/time.js"></script>
+<script src="js/data.js"></script>
+<script src="js/filters.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/excel.js"></script>
+<script src="js/modals.js"></script>
+<script src="js/interactions.js"></script>
+<script src="js/main.js"></script>
 </body>
 </html>
